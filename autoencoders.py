@@ -1,11 +1,9 @@
-import simfin as sf
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from download_data import SimFinData
+from tslearn.metrics import cdist_soft_dtw, cdist_soft_dtw_normalized
+from scipy.spatial.distance import cdist
+
 
 class LinearAutoencoder(nn.Module):
     def __init__(self, input_size, hidden_size, latent_size):
@@ -25,6 +23,7 @@ class LinearAutoencoder(nn.Module):
         encoding = self.encoder(x.permute(0, 2, 1))
         decoded = self.decoder(encoding).permute(0, 2, 1) # permute dimensions
         return decoded
+
 
 class ConvAutoencoder(nn.Module):
     def __init__(self, input_size, hidden_size, latent_size):
@@ -46,7 +45,8 @@ class ConvAutoencoder(nn.Module):
         encoding = self.encoder(x)
         decoded = self.decoder(encoding) # permute dimensions
         return decoded
-    
+
+
 class ConvLinearAutoEncoder(nn.Module):
     def __init__(self, input_size, hidden_size1, hidden_size2, latent_size):
         super(ConvLinearAutoEncoder, self).__init__()
@@ -61,7 +61,6 @@ class ConvLinearAutoEncoder(nn.Module):
             nn.ReLU(),
         )
         self.linear_encoder2 = nn.Linear(latent_size, latent_size)
-
 
         self.linear_decoder1 = nn.Sequential(
             nn.Linear(latent_size, latent_size),
@@ -94,7 +93,8 @@ class ConvLinearAutoEncoder(nn.Module):
         decoded = self.decoder(encoding)
         return decoded
 
-def train_autoencoder(autoencoder_class, input_size, hidden_size, latent_size, num_epochs, batch_size, data, hidden_size2=None, verbose=True):
+
+def train_autoencoder(autoencoder_class, input_size, hidden_size, latent_size, num_epochs, batch_size, data, lr=0.001, hidden_size2=None, verbose=True):
 
     # Setup model, loss function, optimizer
     if hidden_size2 is None:
@@ -102,11 +102,10 @@ def train_autoencoder(autoencoder_class, input_size, hidden_size, latent_size, n
     else:
         model = autoencoder_class(input_size, hidden_size, hidden_size2, latent_size)
     criterion = nn.MSELoss()
-    #criterion = nn.HuberLoss()
-    #criterion = SoftDTW(gamma=0.1)
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=lr)
 
-    print(autoencoder_class.__name__)
+    if verbose:
+        print(autoencoder_class.__name__)
 
     # Train data
     for epoch in range(num_epochs):
@@ -125,7 +124,8 @@ def train_autoencoder(autoencoder_class, input_size, hidden_size, latent_size, n
     # Return trained model
     return model
 
-def get_distance_matrix(model, data, latent_size):
+
+def get_distance_matrix(model, data, latent_size, distance_metric="euclidean", gamma=1.0):
 
     with torch.no_grad():
 
@@ -134,7 +134,16 @@ def get_distance_matrix(model, data, latent_size):
             encodings = model.encoder(torch.tensor(data).float().permute(0, 2, 1))
         else:
             encodings = model.encoder(torch.tensor(data).float())
-        encodings = encodings.reshape(data.shape[0], data.shape[2] * latent_size) # Flatten the last two dimensions
-        distances = torch.cdist(encodings, encodings)
 
-        return distances.numpy()
+        if distance_metric == "euclidean":
+            encodings = encodings.reshape(data.shape[0], data.shape[2] * latent_size)  # Flatten the last two dimensions
+            distances = cdist(encodings, encodings, metric='euclidean')
+            return distances
+        elif distance_metric == "soft_dtw":
+            distances = cdist_soft_dtw(encodings, gamma=gamma)
+            return distances
+        elif distance_metric == "soft_dtw_normalized":
+            distances = cdist_soft_dtw_normalized(encodings, gamma=gamma)
+            return distances
+        else:
+            raise ValueError("Distance not recognized/implemented.")

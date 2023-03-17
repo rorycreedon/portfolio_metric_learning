@@ -2,10 +2,10 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 
-def download_orbis_ratios():
 
+def download_orbis_ratios():
     # Import data
-    ratios = pd.read_excel('data/S&P Ratios.xlsx', index_col=0, sheet_name="Results", usecols='C:EQ')
+    ratios = pd.read_excel('data/S&P Ratios.xlsx', index_col=0, sheet_name="Results", usecols='C:CU')
 
     # Replace "n.a." and "n.s." with NaN
     ratios = ratios.replace('n.a.', np.nan)
@@ -14,14 +14,14 @@ def download_orbis_ratios():
     # Get stub names
     cols = []
     for c in ratios.columns:
-        if c[-1] in ['1','2','3','4']:
+        if c[-1] in ['1', '2', '3', '4']:
             cols.append(c[:-len('\n2022 Quarter 4')])
     cols = list(np.unique(cols))
-    cols
 
     # Reshape
     ratios = ratios.reset_index()
-    ratios = pd.wide_to_long(ratios, stubnames=cols, i=["Ticker symbol"], j="quarter_year", sep='\n', suffix = '.+').reset_index()
+    ratios = pd.wide_to_long(ratios, stubnames=cols, i=["Ticker symbol"], j="quarter_year", sep='\n',
+                             suffix='.+').reset_index()
 
     # Extract year and quarter
     ratios['Year'] = ratios['quarter_year'].str.split(' ').str[0]
@@ -41,7 +41,7 @@ def download_orbis_ratios():
     counts.rename(columns={'Ticker symbol': 'count'}, inplace=True)
     counts = counts.reset_index()
     counts.rename(columns={'index': 'Ticker symbol'}, inplace=True)
-    counts = counts[counts['count']==counts['count'].max()]
+    counts = counts[counts['count'] == counts['count'].max()]
     counts.drop(columns=['count'], inplace=True)
 
     # Only include tickers that we have data for all quarters
@@ -54,30 +54,51 @@ def download_orbis_ratios():
     ratios['Current ratio'] = ratios['Current ratio'].astype(float)
     ratios['Net assets turnover'] = ratios['Net assets turnover'].astype(float)
     ratios['Profit margin (%)'] = ratios['Profit margin (%)'].astype(float)
-    ratios['Solvency ratio (Asset based) (%)'] = ratios['Solvency ratio (Asset based) (%)'].astype(float)
+    # ratios['Solvency ratio (Asset based) (%)'] = ratios['Solvency ratio (Asset based) (%)'].astype(float)
 
     return ratios
 
-def sp500_tickers(start_date = '2019-12-23'):
 
+def sp500_tickers(start_date='2019-12-23'):
     # S&P 500 companies only
     sp500 = pd.read_csv('data/S&P Tickers.csv')
-    ticker_list = sp500[sp500['date'] == start_date]['tickers'].iloc[0].split(',') # last change before 2020-01-01
+    ticker_list = sp500[sp500['date'] == start_date]['tickers'].iloc[0].split(',')  # last change before 2020-01-01
 
     return ticker_list
 
+
 def yf_data(tickers):
-
     # Download YF data
-    data = yf.download(tickers, start="2017-01-01", end="2022-12-31")['Close']
-    # 100 indexing prices
-    data = data.div(data.iloc[0]).mul(100)
-    # Drop tickers with NaNs
-    data.dropna(axis=1, how='all', inplace=True)
+    data = yf.download(tickers, start="2017-01-01", end="2022-12-31")
 
-    # reshape wide to long
-    data = data.reset_index()
-    data = pd.melt(data, id_vars='Date', value_vars=list(data.columns[1:]), var_name='Ticker symbol', value_name='Price')
+    # Reshape
+    data.reset_index(inplace=True)
+    data = data.melt(id_vars='Date', var_name=['Attribute', 'Ticker symbol'])
+    data = data.pivot_table(index=['Date', 'Ticker symbol'], columns='Attribute', values='value')
+    data = data.reset_index()[['Date', 'Ticker symbol', 'Adj Close', 'Volume']]
+
+    # rename column Adj Close to Price
+    data.rename(columns={"Adj Close": "Price"}, inplace=True)
+
+    # 100 indexing
+    data['Price'] = data.groupby('Ticker symbol')['Price'].apply(lambda x: x / x.iloc[0] * 100)
+    data['Volume'] = data.groupby('Ticker symbol')['Volume'].apply(lambda x: x / x.iloc[0] * 100)
+
+    # Calculate momentum for each ticker
+    data['Price Momentum'] = data.groupby('Ticker symbol')['Price'].pct_change(30)
+    data['Price Momentum'] = data['Price Momentum'].replace([np.inf, -np.inf], 0)
+    data['Volume Momentum'] = data.groupby('Ticker symbol')['Volume'].pct_change(30)
+    data['Volume Momentum'] = data['Volume Momentum'].replace([np.inf, -np.inf], 0)
+
+    # Drop if Price Momentum is NaN
+    data = data.dropna(subset=['Price Momentum'])
+
+    # Drop tickers where volume is 0
+    data = data[data['Volume'] != 0]
+
+    # 100 indexing again
+    data['Price'] = data.groupby('Ticker symbol')['Price'].apply(lambda x: x / x.iloc[0] * 100)
+    data['Volume'] = data.groupby('Ticker symbol')['Volume'].apply(lambda x: x / x.iloc[0] * 100)
 
     # Extract year and quarter
     data['Year'] = data['Date'].dt.year
@@ -85,8 +106,8 @@ def yf_data(tickers):
 
     return data
 
-def merge_reshape_data(orbis_ratios, yf_prices):
 
+def merge_reshape_data(orbis_ratios, yf_prices):
     # Merge
     data = orbis_ratios.merge(yf_prices, on=['Ticker symbol', 'Year', 'Quarter'], how='inner')
 
@@ -94,7 +115,10 @@ def merge_reshape_data(orbis_ratios, yf_prices):
     data.drop(columns=['Year', 'Quarter'], inplace=True)
 
     # Reshape
-    data = data.pivot_table(index = 'Date', columns = 'Ticker symbol', values = data.columns[1:])
+    data = data.pivot_table(index='Date', columns='Ticker symbol', values=data.columns[1:])
+
+    # Drop NaNs
+    data = data.transpose().dropna(how='any').transpose()
 
     return data
 
