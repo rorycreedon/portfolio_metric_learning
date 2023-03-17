@@ -1,8 +1,10 @@
 import torch
 import torch.optim as optim
 import numpy as np
-from autoencoders import LinearAutoencoder, ConvAutoencoder, ConvLinearAutoEncoder, \
-    get_distance_matrix
+from models.autoencoders import LinearAutoencoder, get_distance_matrix
+from numba import jit
+from scipy.spatial.distance import cdist
+
 
 class AutoWarp:
 
@@ -10,7 +12,7 @@ class AutoWarp:
         self.model = model
         self.data = data
         self.latent_size = latent_size
-        self.p = p*100
+        self.p = p * 100
         self.max_iterations = max_iterations
         self.batch_size = batch_size
         self.lr = lr
@@ -47,36 +49,74 @@ class AutoWarp:
         all_pairs_indices = np.column_stack(np.where(np.triu(np.ones_like(euclidian_distance), k=1)))
 
         # Randomly sample S pairs of trajectories from the close pairs and all pairs
-        close_pairs = close_pairs_indices[np.random.choice(close_pairs_indices.shape[0], self.batch_size, replace=False)]
+        close_pairs = close_pairs_indices[
+            np.random.choice(close_pairs_indices.shape[0], self.batch_size, replace=False)]
         all_pairs = all_pairs_indices[np.random.choice(all_pairs_indices.shape[0], self.batch_size, replace=False)]
 
         return close_pairs, all_pairs
 
     @staticmethod
-    def warping_distance(t_A, t_B, alpha, gamma, epsilon):
+    def sigma(x, y):
+        return y * torch.tanh(x / y)
+
+    @staticmethod
+    @torch.jit.script
+    def warping_distance_torch(t_A, t_B, alpha, gamma, epsilon):
 
         n, m = len(t_A), len(t_B)
-        cost_matrix = torch.zeros((n + 1, m + 1), requires_grad=False)
+        cost_matrix = torch.zeros((n + 1, m + 1))
+
+        pairwise_euc = torch.cdist(t_A.unsqueeze(0), t_B.unsqueeze(0), p=2.0).squeeze()
 
         for i in range(1, n + 1):
             cost_matrix[i, 0] = float('inf')
         for j in range(1, m + 1):
             cost_matrix[0, j] = float('inf')
 
-        pairwise_euc = torch.cdist(t_A.unsqueeze(0), t_B.unsqueeze(0), p=2).squeeze()
-        sigma = lambda x, y: y * torch.tanh(x / y)
-
         # Calculate the cost matrix
         for i in range(1, n + 1):
             for j in range(1, m + 1):
-                c1 = sigma(pairwise_euc[i - 1, j - 1], epsilon / (1 - epsilon))
-                c2 = alpha / (1 - alpha) * sigma(pairwise_euc[i - 1, j - 1], epsilon / (1 - epsilon)) + gamma
+                c1 = epsilon / (1 - epsilon) * torch.tanh(pairwise_euc[i - 1, j - 1] / (epsilon / (1 - epsilon)))
+                c2 = alpha / (1 - alpha) * (epsilon / (1 - epsilon) * torch.tanh(pairwise_euc[i - 1, j - 1] / (epsilon / (1 - epsilon)))) + gamma
                 updated_cost = c1 + cost_matrix[i - 1, j - 1]
 
                 if i > 1:
                     updated_cost = torch.min(updated_cost, c2 + cost_matrix[i - 1, j])
                 if j > 1:
                     updated_cost = torch.min(updated_cost, c2 + cost_matrix[i, j - 1])
+
+                cost_matrix[i, j] = updated_cost.item()
+
+        return cost_matrix[-1, -1]
+
+    @staticmethod
+    @jit(nopython=True)
+    def warping_distance_numpy(t_A, t_B, alpha, gamma, epsilon):
+        n, m = len(t_A), len(t_B)
+        cost_matrix = np.zeros((n + 1, m + 1))
+
+        for i in range(1, n + 1):
+            cost_matrix[i, 0] = np.inf
+        for j in range(1, m + 1):
+            cost_matrix[0, j] = np.inf
+
+        euclidean_distances = np.zeros((n, m))
+        for i in range(n):
+            for j in range(m):
+                euclidean_distances[i, j] = np.linalg.norm(t_A[i] - t_B[j])
+        sigma = lambda x, y: y * np.tanh(x / y)
+
+        # Calculate the cost matrix
+        for i in range(1, n + 1):
+            for j in range(1, m + 1):
+                c1 = sigma(euclidean_distances[i - 1, j - 1], epsilon / (1 - epsilon))
+                c2 = alpha / (1 - alpha) * sigma(euclidean_distances[i - 1, j - 1], epsilon / (1 - epsilon)) + gamma
+                updated_cost = c1 + cost_matrix[i - 1, j - 1]
+
+                if i > 1:
+                    updated_cost = min([updated_cost, c2 + cost_matrix[i - 1, j]])
+                if j > 1:
+                    updated_cost = min([updated_cost, c2 + cost_matrix[i, j - 1]])
 
                 cost_matrix[i, j] = updated_cost
 
@@ -89,10 +129,12 @@ class AutoWarp:
 
         # calculate beta_hat
         for t_i, t_j in P_c:
-            beta_hat_numerator += self.warping_distance(encodings[t_i], encodings[t_j], self.alpha, self.gamma, self.epsilon)
+            beta_hat_numerator += self.warping_distance_torch(encodings[t_i], encodings[t_j], self.alpha, self.gamma,
+                                                              self.epsilon)
 
         for t_i, t_j in P_all:
-            beta_hat_denominator += self.warping_distance(encodings[t_i], encodings[t_j], self.alpha, self.gamma, self.epsilon)
+            beta_hat_denominator += self.warping_distance_torch(encodings[t_i], encodings[t_j], self.alpha, self.gamma,
+                                                                self.epsilon)
 
         beta_hat = beta_hat_numerator.detach() / beta_hat_denominator.detach()
         beta_hat.requires_grad = True
@@ -117,9 +159,11 @@ class AutoWarp:
             close_pairs, all_pairs = self.sample_trajectory_pairs(euclidian_distance)
 
             # Compute gradients and beta_hat
-            if iteration>0:
+            if iteration > 0:
                 beta_hat_old = beta_hat
-            beta_hat, self.alpha, self.gamma, self.epsilon = self.compute_gradients_and_beta_hat_torch(encodings, close_pairs, all_pairs)
+            beta_hat, self.alpha, self.gamma, self.epsilon = self.compute_gradients_and_beta_hat_torch(encodings,
+                                                                                                       close_pairs,
+                                                                                                       all_pairs)
 
             iteration += 1
 
@@ -134,13 +178,19 @@ class AutoWarp:
         print("betaCV: ", beta_hat.item())
 
     def create_distance_matrix(self):
-        encodings = self.encodings()
+        encodings = self.encodings().detach().numpy()
         num_trajectories = encodings.shape[0]
-        distance_matrix = torch.zeros((num_trajectories, num_trajectories), dtype=torch.float)
+        distance_matrix = np.zeros((num_trajectories, num_trajectories))
+
+        # Convert to numpy
+        alpha_numpy = self.alpha.item()
+        gamma_numpy = self.gamma.item()
+        epsilon_numpy = self.epsilon.item()
 
         for i in range(num_trajectories):
             for j in range(i + 1, num_trajectories):
-                distance = self.warping_distance(encodings[i], encodings[j], self.alpha, self.gamma, self.epsilon)
+                distance = self.warping_distance_numpy(encodings[i], encodings[j], alpha_numpy, gamma_numpy,
+                                                       epsilon_numpy)
                 distance_matrix[i, j] = distance
                 distance_matrix[j, i] = distance
 

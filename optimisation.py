@@ -2,9 +2,10 @@ import torch
 
 # Other files
 import utils
-from mean_variance_optimisation import MeanVarianceOptimisation
-from autoencoders import LinearAutoencoder, ConvAutoencoder, ConvLinearAutoEncoder, train_autoencoder, \
+from models.mean_variance_optimisation import MeanVarianceOptimisation
+from models.autoencoders import LinearAutoencoder, ConvAutoencoder, ConvLinearAutoEncoder, train_autoencoder, \
     get_distance_matrix
+from models.autowarp import AutoWarp
 
 # General imports
 import numpy as np
@@ -36,12 +37,11 @@ def objective(trial, model):
     # Hyperparams
     latent_size = trial.suggest_int('latent_size', 5, 50)
     batch_size = trial.suggest_int('batch_size', 10, 50)
-    distance_metric = 'euclidean'
+    # distance_metric = 'euclidean'
     # distance_metric = trial.suggest_categorical('distance_metric', ['euclidean', 'soft_dtw_normalized'])
     # if distance_metric == 'soft_dtw_normalized':
     #     gamma = trial.suggest_float('gamma', 0, 1)
     C = trial.suggest_float('C', -1, 0)
-    #l2reg = trial.suggest_float('l2reg', 0, 5)
 
     # Train autoencoder
     if model == 'Linear + CNN':
@@ -66,12 +66,18 @@ def objective(trial, model):
         raise ValueError('Model not found')
 
     # Calculate distance matrix
-    if distance_metric == 'euclidean':
-        dist_matrix = get_distance_matrix(trained_model, data_valid_valid, latent_size=latent_size,
-                                          distance_metric=distance_metric)
-    else:
-        dist_matrix = get_distance_matrix(trained_model, data_valid_valid, latent_size=latent_size,
-                                          distance_metric=distance_metric, gamma=gamma)
+    # if distance_metric == 'euclidean':
+    #     dist_matrix = get_distance_matrix(trained_model, data_valid_valid, latent_size=latent_size,
+    #                                       distance_metric=distance_metric)
+    # else:
+    #     dist_matrix = get_distance_matrix(trained_model, data_valid_valid, latent_size=latent_size,
+    #                                       distance_metric=distance_metric, gamma=gamma)
+
+    # Autowarp
+    learner = AutoWarp(trained_model, data_valid_valid, latent_size=latent_size, p=0.2,
+                       max_iterations=10, batch_size=25, lr=0.1)
+    learner.learn_metric()
+    dist_matrix = learner.create_distance_matrix()
 
     # Setup mean variance optimisation
     e_returns = mean_historical_return(prices_valid_train)
@@ -95,12 +101,12 @@ def objective(trial, model):
 
 if __name__ == '__main__':
     # Create an Optuna study and run the optimization
-    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    #optuna.logging.set_verbosity(optuna.logging.WARNING)
 
     # Optimize
-    for m in ['Linear', 'CNN', 'Linear + CNN']:
-    #for m in ['Linear + CNN']:
+    #for m in ['Linear', 'CNN', 'Linear + CNN']:
+    for m in ['Linear + CNN']:
         print(m)
         study = optuna.create_study(direction="maximize")
-        study.optimize(lambda trial: objective(trial, m), n_trials=100, show_progress_bar=True)
+        study.optimize(lambda trial: objective(trial, m), n_trials=10, show_progress_bar=True)
         print(study.best_params)

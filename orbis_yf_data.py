@@ -132,4 +132,5 @@ if __name__ == "__main__":
     data = merge_reshape_data(orbis_ratios, yf_prices)
 
     # Save
-    data.to_pickle('data/data.pkl')
+    #data.to_pickle('data/data.pkl')
+    data.to_csv('data/data.csv')
