@@ -3,9 +3,12 @@ import numpy as np
 import yfinance as yf
 
 
-def download_orbis_ratios():
-    # Import data
-    ratios = pd.read_excel('data/S&P Ratios.xlsx', index_col=0, sheet_name="Results", usecols='C:CU')
+def clean_orbis_ratios(ratios):
+    """
+    Clean Orbis ratios from downloaded Excel file
+    :param ratios: a pandas DataFrame containing Orbis ratios, read from an Excel file
+    :return: Cleaned pandas DataFrame
+    """
 
     # Replace "n.a." and "n.s." with NaN
     ratios = ratios.replace('n.a.', np.nan)
@@ -54,12 +57,16 @@ def download_orbis_ratios():
     ratios['Current ratio'] = ratios['Current ratio'].astype(float)
     ratios['Net assets turnover'] = ratios['Net assets turnover'].astype(float)
     ratios['Profit margin (%)'] = ratios['Profit margin (%)'].astype(float)
-    # ratios['Solvency ratio (Asset based) (%)'] = ratios['Solvency ratio (Asset based) (%)'].astype(float)
 
     return ratios
 
 
 def sp500_tickers(start_date='2019-12-23'):
+    """
+    Get S&P 500 tickers from a given date
+    :param start_date: The date to get the tickers from
+    :return: A list containing the tickers
+    """
     # S&P 500 companies only
     sp500 = pd.read_csv('data/S&P Tickers.csv')
     ticker_list = sp500[sp500['date'] == start_date]['tickers'].iloc[0].split(',')  # last change before 2020-01-01
@@ -68,11 +75,16 @@ def sp500_tickers(start_date='2019-12-23'):
 
 
 def yf_data(tickers):
+    """
+    Download price, price momentum, volume and volume momentum data from Yahoo Finance
+    :param tickers: The tickers to download data for
+    :return: A cleaned dataframe containing price, price momentum, volume and volume momentum data from Yahoo Finance
+    """
     # Download YF data
     data = yf.download(tickers, start="2017-01-01", end="2022-12-31")
 
     # Reshape
-    data.reset_index(inplace=True)
+    data = data.reset_index()
     data = data.melt(id_vars='Date', var_name=['Attribute', 'Ticker symbol'])
     data = data.pivot_table(index=['Date', 'Ticker symbol'], columns='Attribute', values='value')
     data = data.reset_index()[['Date', 'Ticker symbol', 'Adj Close', 'Volume']]
@@ -81,8 +93,8 @@ def yf_data(tickers):
     data.rename(columns={"Adj Close": "Price"}, inplace=True)
 
     # 100 indexing
-    data['Price'] = data.groupby('Ticker symbol')['Price'].apply(lambda x: x / x.iloc[0] * 100)
-    data['Volume'] = data.groupby('Ticker symbol')['Volume'].apply(lambda x: x / x.iloc[0] * 100)
+    data['Price'] = data.groupby('Ticker symbol', group_keys=False)['Price'].apply(lambda x: x / x.iloc[0] * 100)
+    data['Volume'] = data.groupby('Ticker symbol', group_keys=False)['Volume'].apply(lambda x: x / x.iloc[0] * 100)
 
     # Calculate momentum for each ticker
     data['Price Momentum'] = data.groupby('Ticker symbol')['Price'].pct_change(30)
@@ -97,8 +109,8 @@ def yf_data(tickers):
     data = data[data['Volume'] != 0]
 
     # 100 indexing again
-    data['Price'] = data.groupby('Ticker symbol')['Price'].apply(lambda x: x / x.iloc[0] * 100)
-    data['Volume'] = data.groupby('Ticker symbol')['Volume'].apply(lambda x: x / x.iloc[0] * 100)
+    data['Price'] = data.groupby('Ticker symbol', group_keys=False)['Price'].apply(lambda x: x / x.iloc[0] * 100)
+    data['Volume'] = data.groupby('Ticker symbol', group_keys=False)['Volume'].apply(lambda x: x / x.iloc[0] * 100)
 
     # Extract year and quarter
     data['Year'] = data['Date'].dt.year
@@ -108,6 +120,12 @@ def yf_data(tickers):
 
 
 def merge_reshape_data(orbis_ratios, yf_prices):
+    """
+    Merge and reshape the Orbis and Yahoo Finance data
+    :param orbis_ratios: Cleaned Orbis dataframe
+    :param yf_prices: Cleaned Yahoo Finance dataframe
+    :return: Merged and reshaped combined dataframe
+    """
     # Merge
     data = orbis_ratios.merge(yf_prices, on=['Ticker symbol', 'Year', 'Quarter'], how='inner')
 
@@ -124,13 +142,14 @@ def merge_reshape_data(orbis_ratios, yf_prices):
 
 
 if __name__ == "__main__":
+
     # Download data
-    orbis_ratios = download_orbis_ratios()
+    sp500_ratios = pd.read_excel('data/S&P Ratios.xlsx', index_col=0, sheet_name="Results", usecols='C:CU')
+    orbis_ratios = clean_orbis_ratios(sp500_ratios)
     yf_prices = yf_data(sp500_tickers('2019-12-23'))
 
     # Merge
     data = merge_reshape_data(orbis_ratios, yf_prices)
 
     # Save
-    #data.to_pickle('data/data.pkl')
-    data.to_csv('data/data.csv')
+    data.to_pickle('data/sp500_data.pkl')

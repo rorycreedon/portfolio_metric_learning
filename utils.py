@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.linalg import eigh
 import pandas as pd
+import warnings
 
 
 def convert_to_numpy(df):
@@ -12,7 +13,7 @@ def convert_to_numpy(df):
 
 # %%
 def split_orbis_data(train_date, valid_date, train_number=200, returns=False, momentum=False):
-    data = pd.read_pickle('data/data.pkl')
+    data = pd.read_pickle('data/sp500_data.pkl')
 
     if returns is True:
         data['Price'] = (data['Price'] / data['Price'].shift(1)) - 1
@@ -24,9 +25,10 @@ def split_orbis_data(train_date, valid_date, train_number=200, returns=False, mo
         data.columns = data.columns.remove_unused_levels()
 
     # Minmax scale each first level index column
-    for v in data.columns.levels[0]:
-        data[v] = (data[v] - data[v].min()) / (data[v].max() - data[v].min())
+    standardise = lambda group: (group - group.min()) / (group.max() - group.min())
+    data = data.groupby(level=0, axis=1).transform(standardise)
 
+    # Split into test, train, valid
     train = convert_to_numpy(data[data.index < train_date])[:train_number]
     valid_train = convert_to_numpy(data[data.index < valid_date])[train_number:]
     valid_valid = convert_to_numpy(data[(data.index >= valid_date) & (data.index < train_date)])[train_number:]
@@ -36,7 +38,7 @@ def split_orbis_data(train_date, valid_date, train_number=200, returns=False, mo
 
 
 def split_prices(train_date, valid_date, train_number=200):
-    data = pd.read_pickle('data/data.pkl')['Price']
+    data = pd.read_pickle('data/sp500_data.pkl')['Price']
     data = data.div(data.iloc[0]).mul(100)
 
     train = data[data.index < train_date].iloc[:, :train_number]
@@ -49,20 +51,60 @@ def split_prices(train_date, valid_date, train_number=200):
     return train, valid_train, valid_valid, test
 
 
-def calculate_sharpe_ratio(weights, prices, rf_rate, days=252):
+def average_rf_rate(prices, days):
+    """
+    Calculates the average risk free rate from the EFFR data
+    :param prices: daily prices
+    :param days: number of days assumed in a year
+    :return: average risk free rate
+    """
+    # Load EFFR (risk free rate)
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        effr = pd.read_excel('data/EFFR.xlsx', sheet_name='Results', index_col=0, usecols='A:C', engine="openpyxl")
+    effr = effr.drop(columns='Rate Type', axis=1)
+    effr.index = pd.to_datetime(effr.index)
+    effr['Rate (%)'] = effr['Rate (%)'] / (100*days)
+
+    # Merge with prices to get relevant days
+    avg_rf = pd.merge(prices.iloc[:, 0].rename('prices'), effr, how='left', left_index=True, right_index=True)
+    avg_rf['Rate (%)'] = avg_rf['Rate (%)'].fillna(method='ffill')
+
+    return avg_rf['Rate (%)'].mean()/100
+
+
+def calculate_sharpe_ratio(weights, prices, days=252):
     """
     Calculates Sharpe Ratio from prices and weights
     :param weights: portfolio weights
     :param prices: daily prices
-    :param rf_rate: risk-free weight (annual)
     :param days: number of days assumed in a year
     :return: sharpe ratio
     """
+
+    # Load EFFR (risk free rate)
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        effr = pd.read_excel('data/EFFR.xlsx', sheet_name='Results', index_col=0, usecols='A:C', engine="openpyxl")
+    effr = effr.drop(columns='Rate Type', axis=1)
+    effr.index = pd.to_datetime(effr.index)
+    effr['Rate (%)'] = effr['Rate (%)'] / (100*252)
+
+    # Calculate returns
     returns = (prices @ weights) / (prices @ weights).shift(1) - 1
-    avg_return = returns.mean() * days
-    std = returns.std() * np.sqrt(days)
-    sharpe = (avg_return - rf_rate) / std
-    return sharpe.values[0]
+    returns = returns.dropna(axis=0)
+
+    # Calculate excess returns
+    returns = pd.merge(returns, effr, how='left', left_index=True, right_index=True)
+    returns['Rate (%)'] = returns['Rate (%)'].fillna(method='ffill')
+    assert returns.isnull().sum().sum() == 0
+    returns['excess_returns'] = returns['weights'] - returns['Rate (%)']
+
+    # Calculate Sharpe Ratio
+    avg_return = returns['excess_returns'].mean() * days
+    std = returns['excess_returns'].std() * np.sqrt(days)
+    sharpe = avg_return / std
+    return sharpe
 
 
 def calculate_sd(weights, prices, days=252):

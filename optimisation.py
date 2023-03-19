@@ -75,7 +75,7 @@ def objective(trial, model):
 
     # Autowarp
     learner = AutoWarp(trained_model, data_valid_valid, latent_size=latent_size, p=0.2,
-                       max_iterations=10, batch_size=25, lr=0.1)
+                       max_iterations=50, batch_size=25, lr=0.01)
     learner.learn_metric()
     dist_matrix = learner.create_distance_matrix()
 
@@ -89,11 +89,11 @@ def objective(trial, model):
             warnings.simplefilter("ignore")
             # Get weights
             risk_matrix = optimiser.make_risk_matrix(dist_matrix, C=C)
-            weights, train_sr = optimiser.max_sharpe_ratio(risk_matrix=risk_matrix, rf_rate=0.02, l2_reg=0)
+            weights, train_sr = optimiser.max_sharpe_ratio(risk_matrix=risk_matrix, l2_reg=0)
     except:
         return -np.inf
 
-    valid_sr = utils.calculate_sharpe_ratio(weights, prices_valid_valid, rf_rate=0.02)
+    valid_sr = utils.calculate_sharpe_ratio(weights, prices_valid_valid)
 
     # return min(train_sr, valid_sr)
     return train_sr * valid_sr
@@ -105,8 +105,8 @@ if __name__ == '__main__':
 
     # Optimize
     #for m in ['Linear', 'CNN', 'Linear + CNN']:
-    for m in ['Linear + CNN']:
+    for m in ['Linear']:
         print(m)
         study = optuna.create_study(direction="maximize")
-        study.optimize(lambda trial: objective(trial, m), n_trials=10, show_progress_bar=True)
+        study.optimize(lambda trial: objective(trial, m), n_trials=50, show_progress_bar=True)
         print(study.best_params)

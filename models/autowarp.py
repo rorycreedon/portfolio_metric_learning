@@ -3,6 +3,7 @@ import torch.optim as optim
 import numpy as np
 from models.autoencoders import LinearAutoencoder, get_distance_matrix
 from numba import jit
+import concurrent.futures
 from scipy.spatial.distance import cdist
 
 
@@ -21,7 +22,7 @@ class AutoWarp:
         self.gamma = torch.rand(1, requires_grad=True)
         self.epsilon = torch.rand(1, requires_grad=True)
 
-        self.optimizer = optim.SGD([self.alpha, self.gamma, self.epsilon], lr=self.lr)
+        self.optimizer = optim.Adam([self.alpha, self.gamma, self.epsilon], lr=self.lr)
 
     def encodings(self):
 
@@ -56,10 +57,6 @@ class AutoWarp:
         return close_pairs, all_pairs
 
     @staticmethod
-    def sigma(x, y):
-        return y * torch.tanh(x / y)
-
-    @staticmethod
     @torch.jit.script
     def warping_distance_torch(t_A, t_B, alpha, gamma, epsilon):
 
@@ -68,16 +65,16 @@ class AutoWarp:
 
         pairwise_euc = torch.cdist(t_A.unsqueeze(0), t_B.unsqueeze(0), p=2.0).squeeze()
 
-        for i in range(1, n + 1):
-            cost_matrix[i, 0] = float('inf')
-        for j in range(1, m + 1):
-            cost_matrix[0, j] = float('inf')
+        cost_matrix[1:, 0] = float('inf')
+        cost_matrix[0, 1:] = float('inf')
 
-        # Calculate the cost matrix
+        c1_factor = epsilon / (1 - epsilon)
+        c2_factor = alpha / (1 - alpha)
+
         for i in range(1, n + 1):
             for j in range(1, m + 1):
-                c1 = epsilon / (1 - epsilon) * torch.tanh(pairwise_euc[i - 1, j - 1] / (epsilon / (1 - epsilon)))
-                c2 = alpha / (1 - alpha) * (epsilon / (1 - epsilon) * torch.tanh(pairwise_euc[i - 1, j - 1] / (epsilon / (1 - epsilon)))) + gamma
+                c1 = c1_factor * torch.tanh(pairwise_euc[i - 1, j - 1] / c1_factor)
+                c2 = c2_factor * (c1_factor * torch.tanh(pairwise_euc[i - 1, j - 1] / c1_factor)) + gamma
                 updated_cost = c1 + cost_matrix[i - 1, j - 1]
 
                 if i > 1:
@@ -88,6 +85,11 @@ class AutoWarp:
                 cost_matrix[i, j] = updated_cost.item()
 
         return cost_matrix[-1, -1]
+
+    @staticmethod
+    def warping_distance_torch_wrapper(args):
+        t_i, t_j, encodings, alpha, gamma, epsilon = args
+        return AutoWarp.warping_distance_torch(encodings[t_i], encodings[t_j], alpha, gamma, epsilon)
 
     @staticmethod
     @jit(nopython=True)
@@ -122,19 +124,23 @@ class AutoWarp:
 
         return cost_matrix[-1, -1]
 
-    def compute_gradients_and_beta_hat_torch(self, encodings, P_c, P_all):
+    @staticmethod
+    def warping_distance_numpy_wrapper(args):
+        i, j, encodings, alpha_numpy, gamma_numpy, epsilon_numpy = args
+        distance = AutoWarp.warping_distance_numpy(encodings[i], encodings[j], alpha_numpy, gamma_numpy, epsilon_numpy)
+        return i, j, distance
 
-        beta_hat_numerator = torch.tensor(0.0)
-        beta_hat_denominator = torch.tensor(0.0)
+    def compute_gradients_and_beta_hat_torch(self, encodings, P_c, P_all, num_workers=None):
 
-        # calculate beta_hat
-        for t_i, t_j in P_c:
-            beta_hat_numerator += self.warping_distance_torch(encodings[t_i], encodings[t_j], self.alpha, self.gamma,
-                                                              self.epsilon)
+        tasks_c = [(t_i, t_j, encodings, self.alpha, self.gamma, self.epsilon) for t_i, t_j in P_c]
+        tasks_all = [(t_i, t_j, encodings, self.alpha, self.gamma, self.epsilon) for t_i, t_j in P_all]
 
-        for t_i, t_j in P_all:
-            beta_hat_denominator += self.warping_distance_torch(encodings[t_i], encodings[t_j], self.alpha, self.gamma,
-                                                                self.epsilon)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
+            results_c = list(executor.map(AutoWarp.warping_distance_torch_wrapper, tasks_c))
+            results_all = list(executor.map(AutoWarp.warping_distance_torch_wrapper, tasks_all))
+
+        beta_hat_numerator = sum(results_c)
+        beta_hat_denominator = sum(results_all)
 
         beta_hat = beta_hat_numerator.detach() / beta_hat_denominator.detach()
         beta_hat.requires_grad = True
@@ -161,9 +167,10 @@ class AutoWarp:
             # Compute gradients and beta_hat
             if iteration > 0:
                 beta_hat_old = beta_hat
-            beta_hat, self.alpha, self.gamma, self.epsilon = self.compute_gradients_and_beta_hat_torch(encodings,
-                                                                                                       close_pairs,
-                                                                                                       all_pairs)
+            beta_hat, self.alpha, self.gamma, self.epsilon = self.compute_gradients_and_beta_hat_torch(
+                encodings,
+                close_pairs,
+                all_pairs)
 
             iteration += 1
 
@@ -177,7 +184,8 @@ class AutoWarp:
         print("epsilon: ", self.epsilon.item())
         print("betaCV: ", beta_hat.item())
 
-    def create_distance_matrix(self):
+
+    def create_distance_matrix(self, num_workers=None):
         encodings = self.encodings().detach().numpy()
         num_trajectories = encodings.shape[0]
         distance_matrix = np.zeros((num_trajectories, num_trajectories))
@@ -187,11 +195,15 @@ class AutoWarp:
         gamma_numpy = self.gamma.item()
         epsilon_numpy = self.epsilon.item()
 
-        for i in range(num_trajectories):
-            for j in range(i + 1, num_trajectories):
-                distance = self.warping_distance_numpy(encodings[i], encodings[j], alpha_numpy, gamma_numpy,
-                                                       epsilon_numpy)
-                distance_matrix[i, j] = distance
-                distance_matrix[j, i] = distance
+        tasks = [(i, j, encodings, alpha_numpy, gamma_numpy, epsilon_numpy)
+                 for i in range(num_trajectories)
+                 for j in range(i + 1, num_trajectories)]
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
+            results = list(executor.map(AutoWarp.warping_distance_numpy_wrapper, tasks))
+
+        for i, j, distance in results:
+            distance_matrix[i, j] = distance
+            distance_matrix[j, i] = distance
 
         return distance_matrix

@@ -80,11 +80,10 @@ class MeanVarianceOptimisation:
         ef = EfficientFrontier(self.expected_returns, risk_matrix, weight_bounds=self.weight_bounds, solver=self.solver)
         return ef
 
-    def max_sharpe_ratio(self, risk_matrix, rf_rate=0.02, days=252, l2_reg=0.5):
+    def max_sharpe_ratio(self, risk_matrix, days=252, l2_reg=0.5):
         """
         Calculates weights that optimise the Sharpe Ratio and the best Sharpe Ratio
         :param risk_matrix: risk matrix (numpy.array)
-        :param rf_rate: risk-free rate
         :param days: number of days in a year
         :param l2_reg: L2 regularisation parameter
         :return: optimised weights, sharpe ratio
@@ -93,9 +92,9 @@ class MeanVarianceOptimisation:
         ef = self.setup_efficient_frontier(risk_matrix)
         if l2_reg > 0:
             ef.add_objective(objective_functions.L2_reg, gamma=l2_reg)
-        ef.max_sharpe(risk_free_rate=rf_rate)
+        ef.max_sharpe(risk_free_rate=utils.average_rf_rate(self.prices, days))
         weights = pd.DataFrame.from_dict(ef.clean_weights(), orient='index', columns=['weights'])
-        sharpe_ratio = utils.calculate_sharpe_ratio(weights=weights, prices=self.prices, rf_rate=rf_rate, days=days)
+        sharpe_ratio = utils.calculate_sharpe_ratio(weights=weights, prices=self.prices, days=days)
         return weights, sharpe_ratio
 
     def min_volatility(self, risk_matrix, l2_reg=0.5, days=252):
