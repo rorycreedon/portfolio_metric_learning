@@ -233,12 +233,6 @@ class AutoWarp:
                 if abs(beta_hat - beta_hat_old) < 0.0001:
                     convergence = True
 
-        print("alpha: ", self.alpha.item())
-        print("gamma: ", self.gamma.item())
-        print("epsilon: ", self.epsilon.item())
-        print("betaCV: ", beta_hat.item())
-
-
     def create_distance_matrix(self, num_workers=None):
         """
         Creates a distance matrix using the learned metric

@@ -140,8 +140,7 @@ if __name__ == '__main__':
 
             # Save best params in a json
             date_string = start_dates[i].strftime("%Y-%m-%d")
-            with open(f'hyperparam_optimisation/{m}_{start_dates[i]}.json', 'w') as f:
+            with open(f'params/sp500_{start_dates[i].strftime("%Y-%m-%d")}.json', 'w') as f:
                 json.dump(params, f)
 
             print(study.best_params)
-
