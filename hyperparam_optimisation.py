@@ -36,8 +36,8 @@ def objective(trial, model):
     batch_size = trial.suggest_int('batch_size', 10, 50)
 
     # Autowarp hyperparams
-    p = trial.suggest_float('p', 0.1, 0.9)
     autowarp_batch_size = trial.suggest_int('autowarp_batch_size', 10, 50)
+    p = trial.suggest_float('p', 0.2, 0.8)
     lr = trial.suggest_float('lr', 0.001, 0.1)
 
 
@@ -126,6 +126,7 @@ if __name__ == '__main__':
             print(m, start_dates[i])
             study = optuna.create_study(direction="maximize")
             study.optimize(lambda trial: objective(trial, m), n_trials=25, show_progress_bar=True)
+            print(study.best_params)
 
             if m != 'Linear + CNN':
                 params[m]['autoencoder'] = {'latent_size': study.best_params['latent_size'], 'hidden_size': study.best_params['hidden_size'], 'batch_size': study.best_params['batch_size']}
@@ -141,5 +142,3 @@ if __name__ == '__main__':
         # Save best params in a json
         with open(f'params/sp500_{start_dates[i].strftime("%Y-%m-%d")}.json', 'w') as f:
             json.dump(params, f)
-
-        print(study.best_params)

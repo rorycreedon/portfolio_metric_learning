@@ -59,6 +59,12 @@ class AutoWarp:
         # Create a mask for pairs with distance in the latent space less than delta
         close_pairs_mask = np.triu(euclidian_distance < delta, k=1)
 
+        # Ensure that there are at least S pairs of trajectories with distance less than delta
+        while close_pairs_mask.shape[0] == 0:
+            self.p = self.p + 0.5
+            delta = np.percentile(euclidian_distance, self.p)
+            close_pairs_mask = np.triu(euclidian_distance < delta, k=1)
+
         # Get the indices of the close pairs and all pairs
         close_pairs_indices = np.column_stack(np.where(close_pairs_mask))
         all_pairs_indices = np.column_stack(np.where(np.triu(np.ones_like(euclidian_distance), k=1)))
