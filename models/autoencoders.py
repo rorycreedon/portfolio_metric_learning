@@ -5,6 +5,10 @@ from tslearn.metrics import cdist_soft_dtw, cdist_soft_dtw_normalized
 from scipy.spatial.distance import cdist
 
 
+def get_device():
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
 class LinearAutoencoder(nn.Module):
     def __init__(self, input_size, hidden_size, latent_size):
         super(LinearAutoencoder, self).__init__()
@@ -96,11 +100,14 @@ class ConvLinearAutoEncoder(nn.Module):
 
 def train_autoencoder(autoencoder_class, input_size, hidden_size, latent_size, num_epochs, batch_size, data, lr=0.001, hidden_size2=None, verbose=True):
 
+    # Get device
+    device = get_device()
+
     # Setup model, loss function, optimizer
     if hidden_size2 is None:
-        model = autoencoder_class(input_size, hidden_size, latent_size)
+        model = autoencoder_class(input_size, hidden_size, latent_size).to(device)
     else:
-        model = autoencoder_class(input_size, hidden_size, hidden_size2, latent_size)
+        model = autoencoder_class(input_size, hidden_size, hidden_size2, latent_size).to(device)
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
@@ -111,7 +118,7 @@ def train_autoencoder(autoencoder_class, input_size, hidden_size, latent_size, n
     for epoch in range(num_epochs):
         running_loss = 0.0
         for i in range(0, data.shape[0], batch_size):
-            inputs = torch.tensor(data[i:i+batch_size]).float()
+            inputs = torch.tensor(data[i:i+batch_size]).float().to(device)
             optimizer.zero_grad()
             outputs = model(inputs)
             loss = torch.mean(criterion(outputs, inputs))
@@ -125,7 +132,11 @@ def train_autoencoder(autoencoder_class, input_size, hidden_size, latent_size, n
     return model
 
 
-def get_distance_matrix(model, data, latent_size, distance_metric="euclidean", gamma=1.0):
+def get_distance_matrix(model, data, latent_size):
+
+    # Move to device
+    device = get_device()
+    model.to(device)
 
     with torch.no_grad():
 
@@ -135,15 +146,7 @@ def get_distance_matrix(model, data, latent_size, distance_metric="euclidean", g
         else:
             encodings = model.encoder(torch.tensor(data).float())
 
-        if distance_metric == "euclidean":
-            encodings = encodings.reshape(data.shape[0], data.shape[2] * latent_size)  # Flatten the last two dimensions
-            distances = cdist(encodings, encodings, metric='euclidean')
-            return distances
-        elif distance_metric == "soft_dtw":
-            distances = cdist_soft_dtw(encodings, gamma=gamma)
-            return distances
-        elif distance_metric == "soft_dtw_normalized":
-            distances = cdist_soft_dtw_normalized(encodings, gamma=gamma)
-            return distances
-        else:
-            raise ValueError("Distance not recognized/implemented.")
+        # Calculate distance matrix
+        encodings = encodings.reshape(data.shape[0], data.shape[2] * latent_size)  # Flatten the last two dimensions
+        distances = cdist(encodings, encodings, metric='euclidean')
+        return distances

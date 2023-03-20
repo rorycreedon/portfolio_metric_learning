@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import yfinance as yf
+import datetime
 
 
 def clean_orbis_ratios(ratios):
@@ -74,6 +75,19 @@ def sp500_tickers(start_date='2019-12-23'):
     return ticker_list
 
 
+def get_tickers_with_retry(start_date, tickers_function):
+    date_format = "%Y-%m-%d"
+    current_date = datetime.datetime.strptime(start_date, date_format)
+
+    while True:
+        try:
+            tickers = tickers_function(current_date.strftime(date_format))
+            return tickers
+        except Exception as e:
+            print(f"Error occurred for date {current_date.strftime(date_format)}: {e}")
+            current_date -= datetime.timedelta(days=1)
+
+
 def yf_data(tickers):
     """
     Download price, price momentum, volume and volume momentum data from Yahoo Finance
@@ -81,7 +95,7 @@ def yf_data(tickers):
     :return: A cleaned dataframe containing price, price momentum, volume and volume momentum data from Yahoo Finance
     """
     # Download YF data
-    data = yf.download(tickers, start="2017-01-01", end="2022-12-31")
+    data = yf.download(tickers, start="2017-01-01", end="2021-01-01")
 
     # Reshape
     data = data.reset_index()
@@ -141,15 +155,19 @@ def merge_reshape_data(orbis_ratios, yf_prices):
     return data
 
 
-if __name__ == "__main__":
-
-    # Download data
-    sp500_ratios = pd.read_excel('data/S&P Ratios.xlsx', index_col=0, sheet_name="Results", usecols='C:CU')
+def download_all_data(sp500_ratios, date):
+    # Download S&P 500 data
     orbis_ratios = clean_orbis_ratios(sp500_ratios)
-    yf_prices = yf_data(sp500_tickers('2019-12-23'))
+    yf_all_data = yf_data(get_tickers_with_retry(date, sp500_tickers))
 
     # Merge
-    data = merge_reshape_data(orbis_ratios, yf_prices)
+    data = merge_reshape_data(orbis_ratios, yf_all_data)
 
     # Save
-    data.to_pickle('data/sp500_data.pkl')
+    data.to_pickle(f'data/sp500_data.pkl')
+
+
+if __name__ == "__main__":
+
+    sp500_ratios = pd.read_excel('data/S&P Ratios.xlsx', index_col=0, sheet_name="Results", usecols='C:CU')
+    download_all_data(sp500_ratios, '2019-12-23')

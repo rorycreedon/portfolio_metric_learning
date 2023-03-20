@@ -4,7 +4,6 @@ import numpy as np
 from models.autoencoders import LinearAutoencoder, get_distance_matrix
 from numba import jit
 import concurrent.futures
-from scipy.spatial.distance import cdist
 
 
 class AutoWarp:
@@ -22,9 +21,15 @@ class AutoWarp:
         self.gamma = torch.rand(1, requires_grad=True)
         self.epsilon = torch.rand(1, requires_grad=True)
 
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
         self.optimizer = optim.Adam([self.alpha, self.gamma, self.epsilon], lr=self.lr)
 
     def encodings(self):
+        """
+        Calculates latent representation of the data from the encoder of the model
+        :return: Latent representation of the data
+        """
 
         with torch.no_grad():
             if type(self.model) == LinearAutoencoder:
@@ -34,10 +39,19 @@ class AutoWarp:
         return encodings
 
     def euclidian_distance(self):
+        """
+        Calculates the euclidian distance between the latent representation of each stock
+        :return: the euclidian distance between the latent representation of each stock
+        """
 
-        return get_distance_matrix(self.model, self.data, self.latent_size, distance_metric="euclidean")
+        return get_distance_matrix(self.model, self.data, self.latent_size)
 
     def sample_trajectory_pairs(self, euclidian_distance):
+        """
+        Samples pairs of trajectories from the latent space
+        :param euclidian_distance: Euclidean distance between the latent representation of each stock
+        :return: close_pairs, all_pairs
+        """
 
         # Compute delta
         delta = np.percentile(euclidian_distance, self.p)
@@ -59,6 +73,15 @@ class AutoWarp:
     @staticmethod
     @torch.jit.script
     def warping_distance_torch(t_A, t_B, alpha, gamma, epsilon):
+        """
+        Calculates the warping distance between two time series using pytorch
+        :param t_A: Time series A
+        :param t_B: Time series B
+        :param alpha: Parameter alpha
+        :param gamma: Parameter gamma
+        :param epsilon: Parameter epsilon
+        :return: Warping distance between the two time series
+        """
 
         n, m = len(t_A), len(t_B)
         cost_matrix = torch.zeros((n + 1, m + 1))
@@ -88,12 +111,26 @@ class AutoWarp:
 
     @staticmethod
     def warping_distance_torch_wrapper(args):
+        """
+        Wrapper for the warping distance function to be used with multiprocessing
+        :param args: t_i, t_j, encodings, alpha, gamma, epsilon
+        :return: The warping distance between the two time series
+        """
         t_i, t_j, encodings, alpha, gamma, epsilon = args
         return AutoWarp.warping_distance_torch(encodings[t_i], encodings[t_j], alpha, gamma, epsilon)
 
     @staticmethod
     @jit(nopython=True)
     def warping_distance_numpy(t_A, t_B, alpha, gamma, epsilon):
+        """
+        Calculates the warping distance between two time series using numba (uses JIT compilation)
+        :param t_A: Time series A
+        :param t_B: Time series B
+        :param alpha: Parameter alpha
+        :param gamma: Parameter gamma
+        :param epsilon: Parameter epsilon
+        :return: The warping distance between the two time series
+        """
         n, m = len(t_A), len(t_B)
         cost_matrix = np.zeros((n + 1, m + 1))
 
@@ -126,11 +163,24 @@ class AutoWarp:
 
     @staticmethod
     def warping_distance_numpy_wrapper(args):
+        """
+        Wrapper for the numpy warping distance function
+        :param args: i, j, encodings, alpha_numpy, gamma_numpy, epsilon_numpy
+        :return: i, j, distance
+        """
         i, j, encodings, alpha_numpy, gamma_numpy, epsilon_numpy = args
         distance = AutoWarp.warping_distance_numpy(encodings[i], encodings[j], alpha_numpy, gamma_numpy, epsilon_numpy)
         return i, j, distance
 
     def compute_gradients_and_beta_hat_torch(self, encodings, P_c, P_all, num_workers=None):
+        """
+        Computes gradients and updates alpha, gamma, epsilon and beta_hat
+        :param encodings: Latent represenation of the data
+        :param P_c: Pairs of data points with euclidian distance in the latent space less than delta
+        :param P_all: Pairs of data points with any euclidian distance in the latent space
+        :param num_workers: Number of workers to use for parallel computation
+        :return: alpha, gamma, epsilon, beta_hat
+        """
 
         tasks_c = [(t_i, t_j, encodings, self.alpha, self.gamma, self.epsilon) for t_i, t_j in P_c]
         tasks_all = [(t_i, t_j, encodings, self.alpha, self.gamma, self.epsilon) for t_i, t_j in P_all]
@@ -151,6 +201,10 @@ class AutoWarp:
         return self.alpha, self.gamma, self.epsilon, beta_hat
 
     def learn_metric(self):
+        """
+        Learn the metric parameters alpha, gamma, epsilon and beta_hat
+        :return: Learned alpha, gamma, epsilon and beta_hat
+        """
 
         iteration = 0
         convergence = False
@@ -186,6 +240,11 @@ class AutoWarp:
 
 
     def create_distance_matrix(self, num_workers=None):
+        """
+        Creates a distance matrix using the learned metric
+        :param num_workers: Number of workers for parallel processing
+        :return: Distance matrix
+        """
         encodings = self.encodings().detach().numpy()
         num_trajectories = encodings.shape[0]
         distance_matrix = np.zeros((num_trajectories, num_trajectories))

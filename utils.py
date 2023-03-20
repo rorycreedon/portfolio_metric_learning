@@ -12,8 +12,23 @@ def convert_to_numpy(df):
 
 
 # %%
-def split_orbis_data(train_date, valid_date, train_number=200, returns=False, momentum=False):
+def split_orbis_data(start_date, valid_date, train_date, train_number=200, returns=False, momentum=False):
+    """
+    Split Orbis data into train and validation
+    :param start_date: start date of the data
+    :param valid_date: start date of the validation set
+    :param train_date: end date of the training set
+    :param train_number: Number of stocks in the training set
+    :param returns: Whether prices or returns should be used
+    :param momentum: Whether momentum features should be used
+    :return: train, valid_train, valid_valid
+    """
     data = pd.read_pickle('data/sp500_data.pkl')
+
+    # 100 indexing price and volume
+    data = data[data.index >= start_date]
+    data['Price'] = data['Price'].div(data['Price'].iloc[0]).mul(100)
+    data['Volume'] = data['Volume'].div(data['Volume'].iloc[0]).mul(100)
 
     if returns is True:
         data['Price'] = (data['Price'] / data['Price'].shift(1)) - 1
@@ -28,24 +43,34 @@ def split_orbis_data(train_date, valid_date, train_number=200, returns=False, mo
     standardise = lambda group: (group - group.min()) / (group.max() - group.min())
     data = data.groupby(level=0, axis=1).transform(standardise)
 
-    # Split into test, train, valid
+    # Split into train and validation
     train = convert_to_numpy(data[data.index < train_date])[:train_number]
     valid_train = convert_to_numpy(data[data.index < valid_date])[train_number:]
-    valid_valid = convert_to_numpy(data[(data.index >= valid_date) & (data.index < train_date)])[train_number:]
-    test = convert_to_numpy(data[data.index >= train_date])[:train_number]
 
-    return train, valid_train, valid_valid, test
+    return train, valid_train
 
 
-def split_prices(train_date, valid_date, train_number=200):
+def split_prices(start_date, valid_date, train_date, end_date, train_number=200):
+    """
+    Split YahooFinance price data into train, validation and test sets
+    :param start_date: start date of the data
+    :param valid_date: start date of the validation set
+    :param train_date: end date of the training set
+    :param end_date: end date of the test set
+    :param train_number: Number of stocks in the training set
+    :return:train, valid_train, valid_valid and test
+    """
     data = pd.read_pickle('data/sp500_data.pkl')['Price']
+
+    # 100 indexing price and volume
+    data = data[data.index >= start_date]
     data = data.div(data.iloc[0]).mul(100)
 
     train = data[data.index < train_date].iloc[:, :train_number]
     valid_train = data[data.index < valid_date].iloc[:, train_number:]
     valid_valid = data[(data.index >= valid_date) & (data.index < train_date)].iloc[:, train_number:]
     valid_valid = valid_valid.div(valid_valid.iloc[0]).mul(100)
-    test = data[data.index >= train_date].iloc[:, :train_number]
+    test = data[(data.index >= train_date) & (data.index <= end_date)].iloc[:, :train_number]
     test = test.div(test.iloc[0]).mul(100)
 
     return train, valid_train, valid_valid, test
