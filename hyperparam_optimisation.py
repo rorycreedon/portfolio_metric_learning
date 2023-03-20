@@ -37,7 +37,7 @@ def objective(trial, model):
 
     # Autowarp hyperparams
     p = trial.suggest_float('p', 0.1, 0.9)
-    autowarp_batch_size = trial.suggest_int('batch_size', 10, 50)
+    autowarp_batch_size = trial.suggest_int('autowarp_batch_size', 10, 50)
     lr = trial.suggest_float('lr', 0.001, 0.1)
 
 
@@ -68,7 +68,7 @@ def objective(trial, model):
 
     # Autowarp
     learner = AutoWarp(trained_model, data_valid, latent_size=latent_size, p=p,
-                       max_iterations=50, batch_size=autowarp_batch_size, lr=lr)
+                       max_iterations=25, batch_size=autowarp_batch_size, lr=lr)
     learner.learn_metric()
     dist_matrix = learner.create_distance_matrix()
 
@@ -116,31 +116,30 @@ if __name__ == '__main__':
         _, prices_valid_train, prices_valid_valid, _ = utils.split_prices(start_date=start_dates[i], valid_date=valid_dates[i], train_date=train_dates[i], end_date=end_dates[i], train_number=200)
         _, data_valid = utils.split_orbis_data(start_date=start_dates[i], valid_date=valid_dates[i], train_date=train_dates[i], returns=True, momentum=True, train_number=200)
 
+        # Sort into a dict
+        params = {'Linear': {}, 'CNN': {}, 'Linear + CNN': {}}
+
         # Optimize
         for m in ['Linear', 'CNN', 'Linear + CNN']:
 
             # Optuna optimisation
             print(m, start_dates[i])
             study = optuna.create_study(direction="maximize")
-            study.optimize(lambda trial: objective(trial, m), n_trials=50, show_progress_bar=True)
-
-            # Sort into a dict
-            params = {}
+            study.optimize(lambda trial: objective(trial, m), n_trials=25, show_progress_bar=True)
 
             if m != 'Linear + CNN':
-                params['autoencoder'] = {'latent_size': study.best_params['latent_size'], 'hidden_size': study.best_params['hidden_size'], 'batch_size': study.best_params['batch_size']}
+                params[m]['autoencoder'] = {'latent_size': study.best_params['latent_size'], 'hidden_size': study.best_params['hidden_size'], 'batch_size': study.best_params['batch_size']}
             else:
-                params['autoencoder'] = {'latent_size': study.best_params['latent_size'], 'hidden_size': study.best_params['hidden_size1'], 'hidden_size2': study.best_params['hidden_size2'], 'batch_size': study.best_params['batch_size']}
+                params[m]['autoencoder'] = {'latent_size': study.best_params['latent_size'], 'hidden_size': study.best_params['hidden_size1'], 'hidden_size2': study.best_params['hidden_size2'], 'batch_size': study.best_params['batch_size']}
 
-            params['dist_matrix'] = {'latent_size': study.best_params['latent_size'], 'p': study.best_params['p'],
-                                     'max_iterations': 50, 'batch_size': study.best_params['batch_size'],
+            params[m]['dist_matrix'] = {'latent_size': study.best_params['latent_size'], 'p': study.best_params['p'],
+                                     'max_iterations': 25, 'autowarp_batch_size': study.best_params['autowarp_batch_size'],
                                      'lr': study.best_params['lr']}
-            params['risk_matrix'] = {'C': study.best_params['C']}
+            params[m]['risk_matrix'] = {'C': study.best_params['C']}
 
 
-            # Save best params in a json
-            date_string = start_dates[i].strftime("%Y-%m-%d")
-            with open(f'params/sp500_{start_dates[i].strftime("%Y-%m-%d")}.json', 'w') as f:
-                json.dump(params, f)
+        # Save best params in a json
+        with open(f'params/sp500_{start_dates[i].strftime("%Y-%m-%d")}.json', 'w') as f:
+            json.dump(params, f)
 
-            print(study.best_params)
+        print(study.best_params)

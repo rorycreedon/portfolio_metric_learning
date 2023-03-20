@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from tslearn.metrics import cdist_soft_dtw, cdist_soft_dtw_normalized
 from scipy.spatial.distance import cdist
 
 

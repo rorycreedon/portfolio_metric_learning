@@ -95,7 +95,7 @@ def yf_data(tickers):
     :return: A cleaned dataframe containing price, price momentum, volume and volume momentum data from Yahoo Finance
     """
     # Download YF data
-    data = yf.download(tickers, start="2017-01-01", end="2021-01-01")
+    data = yf.download(tickers, start="2017-01-01", end="2023-01-01")
 
     # Reshape
     data = data.reset_index()
