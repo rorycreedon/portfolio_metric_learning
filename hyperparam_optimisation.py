@@ -38,11 +38,10 @@ def objective(trial, model):
     # Autowarp hyperparams
     autowarp_batch_size = trial.suggest_int('autowarp_batch_size', 10, 50)
     p = trial.suggest_float('p', 0.2, 0.8)
-    lr = trial.suggest_float('lr', 0.001, 0.1)
-
+    lr = trial.suggest_float('lr', 0.001, 0.01)
 
     # Risk matrix hyperparams
-    C = trial.suggest_float('C', -1, 0)
+    C = trial.suggest_float('C', -0.6, -0.1)
 
     # Train autoencoder
     if model == 'Linear + CNN':
@@ -113,8 +112,8 @@ if __name__ == '__main__':
         download_all_data(sp500_ratios, start_dates[i].strftime("%Y-%m-%d"))
 
         # Get numpy data and prices
-        _, prices_valid_train, prices_valid_valid, _ = utils.split_prices(start_date=start_dates[i], valid_date=valid_dates[i], train_date=train_dates[i], end_date=end_dates[i], train_number=200)
-        _, data_valid = utils.split_orbis_data(start_date=start_dates[i], valid_date=valid_dates[i], train_date=train_dates[i], returns=True, momentum=True, train_number=200)
+        _, prices_valid_train, prices_valid_valid, _ = utils.split_prices(start_date=start_dates[i], valid_date=valid_dates[i], train_date=train_dates[i], end_date=end_dates[i], train_valid_split=2/3)
+        _, data_valid = utils.split_orbis_data(start_date=start_dates[i], valid_date=valid_dates[i], train_date=train_dates[i], returns=True, momentum=True, train_valid_split=2/3)
 
         # Sort into a dict
         params = {'Linear': {}, 'CNN': {}, 'Linear + CNN': {}}
@@ -125,7 +124,7 @@ if __name__ == '__main__':
             # Optuna optimisation
             print(m, start_dates[i])
             study = optuna.create_study(direction="maximize")
-            study.optimize(lambda trial: objective(trial, m), n_trials=25, show_progress_bar=True)
+            study.optimize(lambda trial: objective(trial, m), n_trials=50, show_progress_bar=True)
             print(study.best_params)
 
             if m != 'Linear + CNN':
@@ -134,7 +133,7 @@ if __name__ == '__main__':
                 params[m]['autoencoder'] = {'latent_size': study.best_params['latent_size'], 'hidden_size': study.best_params['hidden_size1'], 'hidden_size2': study.best_params['hidden_size2'], 'batch_size': study.best_params['batch_size']}
 
             params[m]['dist_matrix'] = {'latent_size': study.best_params['latent_size'], 'p': study.best_params['p'],
-                                     'max_iterations': 25, 'autowarp_batch_size': study.best_params['autowarp_batch_size'],
+                                     'max_iterations': 50, 'autowarp_batch_size': study.best_params['autowarp_batch_size'],
                                      'lr': study.best_params['lr']}
             params[m]['risk_matrix'] = {'C': study.best_params['C']}
 

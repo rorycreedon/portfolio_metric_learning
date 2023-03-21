@@ -8,13 +8,13 @@ import concurrent.futures
 
 class AutoWarp:
 
-    def __init__(self, model, data, latent_size, p=0.5, max_iterations=100, batch_size=25, lr=0.1):
+    def __init__(self, model, data, latent_size, p=0.5, max_iterations=100, autowarp_batch_size=25, lr=0.1):
         self.model = model
         self.data = data
         self.latent_size = latent_size
         self.p = p * 100
         self.max_iterations = max_iterations
-        self.batch_size = batch_size
+        self.batch_size = autowarp_batch_size
         self.lr = lr
 
         self.alpha = torch.rand(1, requires_grad=True)
@@ -202,9 +202,10 @@ class AutoWarp:
         beta_hat.requires_grad = True
         self.optimizer.zero_grad()
         beta_hat.backward()
+        #torch.nn.utils.clip_grad_norm_([self.alpha, self.gamma, self.epsilon], 5)
         self.optimizer.step()
 
-        return self.alpha, self.gamma, self.epsilon, beta_hat
+        return beta_hat
 
     def learn_metric(self):
         """
@@ -227,7 +228,7 @@ class AutoWarp:
             # Compute gradients and beta_hat
             if iteration > 0:
                 beta_hat_old = beta_hat
-            beta_hat, self.alpha, self.gamma, self.epsilon = self.compute_gradients_and_beta_hat_torch(
+            beta_hat = self.compute_gradients_and_beta_hat_torch(
                 encodings,
                 close_pairs,
                 all_pairs)
@@ -236,7 +237,7 @@ class AutoWarp:
 
             # Check for convergence in beta_hat
             if iteration > 1:
-                if abs(beta_hat - beta_hat_old) < 0.0001:
+                if abs(beta_hat - beta_hat_old) < 0.001:
                     convergence = True
 
     def create_distance_matrix(self, num_workers=None):

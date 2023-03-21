@@ -63,7 +63,7 @@ class MeanVarianceOptimisation:
             risk_matrix = sample_cov(self.prices)
         elif benchmark_model == "Covariance Shrinkage":
             risk_matrix = CovarianceShrinkage(self.prices).ledoit_wolf()
-        elif benchmark_model == "Exponentially weighted Covariance":
+        elif benchmark_model == "Exponentially Weighted Covariance":
             risk_matrix = exp_cov(self.prices)
         else:
             raise ValueError("Not in list of benchmarks")

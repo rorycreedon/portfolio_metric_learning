@@ -2,6 +2,7 @@ import numpy as np
 from scipy.linalg import eigh
 import pandas as pd
 import warnings
+import numpy as np
 
 
 def convert_to_numpy(df):
@@ -12,18 +13,21 @@ def convert_to_numpy(df):
 
 
 # %%
-def split_orbis_data(start_date, valid_date, train_date, train_number=200, returns=False, momentum=False):
+def split_orbis_data(start_date, valid_date, train_date, train_valid_split=2/3, returns=False, momentum=False):
     """
     Split Orbis data into train and validation
     :param start_date: start date of the data
     :param valid_date: start date of the validation set
     :param train_date: end date of the training set
-    :param train_number: Number of stocks in the training set
+    :param train_valid_split: Train/valid split
     :param returns: Whether prices or returns should be used
     :param momentum: Whether momentum features should be used
     :return: train, valid_train, valid_valid
     """
     data = pd.read_pickle('data/sp500_data.pkl')
+
+    # Train number
+    train_number = round(train_valid_split*np.unique(data.columns.get_level_values(1)).shape[0])
 
     # 100 indexing price and volume
     data = data[data.index >= start_date]
@@ -50,17 +54,20 @@ def split_orbis_data(start_date, valid_date, train_date, train_number=200, retur
     return train, valid_train
 
 
-def split_prices(start_date, valid_date, train_date, end_date, train_number=200):
+def split_prices(start_date, valid_date, train_date, end_date, train_valid_split=2/3):
     """
     Split YahooFinance price data into train, validation and test sets
     :param start_date: start date of the data
     :param valid_date: start date of the validation set
     :param train_date: end date of the training set
     :param end_date: end date of the test set
-    :param train_number: Number of stocks in the training set
+    :param train_valid_split: Train/valid split
     :return:train, valid_train, valid_valid and test
     """
     data = pd.read_pickle('data/sp500_data.pkl')['Price']
+
+    # Train number
+    train_number = round(train_valid_split * data.shape[-1])
 
     # 100 indexing price and volume
     data = data[data.index >= start_date]
