@@ -67,7 +67,7 @@ def objective(trial, model):
 
     # Autowarp
     learner = AutoWarp(trained_model, data_valid, latent_size=latent_size, p=p,
-                       max_iterations=25, batch_size=autowarp_batch_size, lr=lr)
+                       max_iterations=25, autowarp_batch_size=autowarp_batch_size, lr=lr)
     learner.learn_metric()
     dist_matrix = learner.create_distance_matrix()
 
