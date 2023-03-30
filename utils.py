@@ -140,6 +140,20 @@ def calculate_sharpe_ratio(weights, prices, days=252):
     sharpe = avg_return / std
     return sharpe
 
+def max_drawdown(prices, weights):
+    """
+    Calculates the maximum drawdown of a portfolio
+    :param prices: Price time series
+    :param weights: Weights for each stock
+    :return: Maximum drawdown (%)
+    """
+    portfolio = prices @ weights
+    portfolio['running_max'] = portfolio['weights'].cummax()
+    portfolio['drawdown'] = portfolio['running_max'] - portfolio['weights']
+    max_drawdown = portfolio['drawdown'].max()
+    max_drawdown_pct = max_drawdown / portfolio.loc[portfolio['drawdown'].idxmax(), 'running_max']
+    return max_drawdown_pct
+
 
 def calculate_sd(weights, prices, days=252):
     """
