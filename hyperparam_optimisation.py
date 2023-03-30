@@ -32,12 +32,12 @@ def objective(trial, model):
     num_epochs = 20
 
     # Autoencoder hyperparams
-    latent_size = trial.suggest_int('latent_size', 5, 50)
+    latent_size = trial.suggest_int('latent_size', 5, 25)
     batch_size = trial.suggest_int('batch_size', 10, 50)
 
     # Autowarp hyperparams
     autowarp_batch_size = trial.suggest_int('autowarp_batch_size', 10, 50)
-    p = trial.suggest_float('p', 0.2, 0.8)
+    p = trial.suggest_float('p', 0.1, 0.9)
     lr = trial.suggest_float('lr', 0.001, 0.01)
 
     # Risk matrix hyperparams
@@ -66,10 +66,13 @@ def objective(trial, model):
         raise ValueError('Model not found')
 
     # Autowarp
-    learner = AutoWarp(trained_model, data_valid, latent_size=latent_size, p=p,
-                       max_iterations=25, autowarp_batch_size=autowarp_batch_size, lr=lr)
-    learner.learn_metric()
-    dist_matrix = learner.create_distance_matrix()
+    try:
+        learner = AutoWarp(trained_model, data_valid, latent_size=latent_size, p=p,
+                           max_iterations=50, autowarp_batch_size=autowarp_batch_size, lr=lr)
+        learner.learn_metric()
+        dist_matrix = learner.create_distance_matrix()
+    except:
+        return -np.inf
 
     # Setup mean variance optimisation
     e_returns = mean_historical_return(prices_valid_train)
@@ -87,7 +90,6 @@ def objective(trial, model):
 
     valid_sr = utils.calculate_sharpe_ratio(weights, prices_valid_valid)
 
-    # return min(train_sr, valid_sr)
     return train_sr * valid_sr
 
 
@@ -97,12 +99,12 @@ if __name__ == '__main__':
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
     # Setup dates
-    start_dates = ['2017-03-01', '2017-09-01', '2018-03-01', '2018-09-01', '2019-03-01']
+    start_dates = ['2017-03-01', '2017-09-01', '2018-03-01']
     date_format = "%Y-%m-%d"
     start_dates = [datetime.datetime.strptime(date, date_format) for date in start_dates]
-    valid_dates = [date + relativedelta(years=1) for date in start_dates]
-    train_dates = [date + relativedelta(years=2) for date in start_dates]
-    end_dates = [date + relativedelta(years=3, months=6) for date in start_dates]
+    valid_dates = [date + relativedelta(years=2) for date in start_dates]
+    train_dates = [date + relativedelta(years=3) for date in start_dates]
+    end_dates = [date + relativedelta(years=4, months=6) for date in start_dates]
 
     # Loop through dates
     for i in range(len(start_dates)):

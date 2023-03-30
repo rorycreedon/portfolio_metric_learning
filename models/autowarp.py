@@ -1,7 +1,7 @@
 import torch
 import torch.optim as optim
 import numpy as np
-from models.autoencoders import LinearAutoencoder, get_distance_matrix
+from models.autoencoders import LinearAutoencoder, ConvAutoencoder, ConvLinearAutoEncoder, get_distance_matrix, train_autoencoder
 from numba import jit
 import concurrent.futures
 
@@ -44,7 +44,13 @@ class AutoWarp:
         :return: the euclidian distance between the latent representation of each stock
         """
 
-        return get_distance_matrix(self.model, self.data, self.latent_size)
+        euclidian_distance = get_distance_matrix(self.model, self.data, self.latent_size)
+        if np.max(euclidian_distance) == 0:
+            return ValueError("Auto-encoder training error - latent representation of all stocks is all 0")
+        if np.max(euclidian_distance) - np.min(euclidian_distance) == 0:
+            return ValueError("Auto-encoder training error - latent representation of all stocks is the same")
+
+        return euclidian_distance
 
     def sample_trajectory_pairs(self, euclidian_distance):
         """
@@ -60,8 +66,11 @@ class AutoWarp:
         close_pairs_mask = np.triu(euclidian_distance < delta, k=1)
 
         # Ensure that there are at least S pairs of trajectories with distance less than delta
-        while close_pairs_mask.shape[0] == 0:
-            self.p = self.p + 0.5
+        while np.sum(close_pairs_mask) == 0:
+            self.p = self.p + 1
+            if self.p >= 100:
+                print("No pairs of trajectories with distance less than delta")
+                print(euclidian_distance)
             delta = np.percentile(euclidian_distance, self.p)
             close_pairs_mask = np.triu(euclidian_distance < delta, k=1)
 
@@ -70,6 +79,8 @@ class AutoWarp:
         all_pairs_indices = np.column_stack(np.where(np.triu(np.ones_like(euclidian_distance), k=1)))
 
         # Randomly sample S pairs of trajectories from the close pairs and all pairs
+        while close_pairs_indices.shape[0] <= self.batch_size:
+            self.batch_size = self.batch_size - 1
         close_pairs = close_pairs_indices[
             np.random.choice(close_pairs_indices.shape[0], self.batch_size, replace=False)]
         all_pairs = all_pairs_indices[np.random.choice(all_pairs_indices.shape[0], self.batch_size, replace=False)]
@@ -202,14 +213,15 @@ class AutoWarp:
         beta_hat.requires_grad = True
         self.optimizer.zero_grad()
         beta_hat.backward()
-        #torch.nn.utils.clip_grad_norm_([self.alpha, self.gamma, self.epsilon], 5)
+        # torch.nn.utils.clip_grad_norm_([self.alpha, self.gamma, self.epsilon], 5)
         self.optimizer.step()
 
         return beta_hat
 
-    def learn_metric(self):
+    def learn_metric(self, verbose=False):
         """
         Learn the metric parameters alpha, gamma, epsilon and beta_hat
+        :param verbose: Print learned parameters
         :return: Learned alpha, gamma, epsilon and beta_hat
         """
 
@@ -239,6 +251,11 @@ class AutoWarp:
             if iteration > 1:
                 if abs(beta_hat - beta_hat_old) < 0.001:
                     convergence = True
+
+        if verbose:
+            print(f"Alpha: {self.alpha.item()}")
+            print(f"Gamma: {self.gamma.item()}")
+            print(f"Epsilon: {self.epsilon.item()}")
 
     def create_distance_matrix(self, num_workers=None):
         """

@@ -12,7 +12,6 @@ def convert_to_numpy(df):
     return np.stack(variables, axis=2)
 
 
-# %%
 def split_orbis_data(start_date, valid_date, train_date, train_valid_split=2/3, returns=False, momentum=False):
     """
     Split Orbis data into train and validation
@@ -35,7 +34,10 @@ def split_orbis_data(start_date, valid_date, train_date, train_valid_split=2/3, 
     data['Volume'] = data['Volume'].div(data['Volume'].iloc[0]).mul(100)
 
     if returns is True:
-        data['Price'] = (data['Price'] / data['Price'].shift(1)) - 1
+        returns = data.xs('Price', axis=1, level=0).pct_change()
+        returns.columns = pd.MultiIndex.from_product([['Returns'], returns.columns])
+        data = pd.concat([data, returns], axis=1)
+        # data['Price Returns'] = (data['Price'] / data['Price'].shift(1)) - 1
         data = data.dropna(axis=0)
 
     if momentum is False:
@@ -177,13 +179,6 @@ def get_near_psd(matrix):
     if is_psd(matrix):
         return matrix
     else:
-        # C = (matrix + matrix.T) / 2
-        # eigval, eigvec = np.linalg.eig(C)
-        # eigval[eigval < 0] = 0
-        # print("matrix fixed for PSD")
-        #
-        # return np.real(eigvec.dot(np.diag(eigval)).dot(eigvec.T))
-
         # Get the symmetric part of the distance matrix
         sym_dist_matrix = 0.5 * (matrix + matrix.T)
 
