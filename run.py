@@ -17,6 +17,7 @@ import datetime
 from dateutil.relativedelta import relativedelta
 import yfinance as yf
 import os
+import argparse
 
 # Optimisation
 from pypfopt.expected_returns import mean_historical_return
@@ -60,8 +61,8 @@ def train_autoenoders(data_train, num_epochs, params):
 def calculate_dist_matrix(data_train, models, params):
 
     dist_matrices = {}
-    for model in ['Linear', 'Linear + CNN', 'CNN']:
-        print(model, " - calculating distance matrix")
+    for model in ['Linear + CNN', 'Linear', 'CNN']:
+        print(model, "- calculating distance matrix")
         learner = AutoWarp(models[model], data_train, **params[model]['dist_matrix'])
         learner.learn_metric()
         dist_matrices[model] = learner.create_distance_matrix()
@@ -69,7 +70,7 @@ def calculate_dist_matrix(data_train, models, params):
     return dist_matrices
 
 
-def mvo(dist_matrices, params, prices_train):
+def mvo(dist_matrices, params, prices_train, volatility=True):
 
     # Empty dict for weights
     weights = {}
@@ -81,9 +82,12 @@ def mvo(dist_matrices, params, prices_train):
                                              weight_bounds=(0, 1))
 
         # Get weights
-        print(model, "making risk matrix")
+        print(model, "- making risk matrix")
         risk_matrix = optimiser.make_risk_matrix(dist_matrices[model], **params[model]['risk_matrix'])
-        weights[model], train_sr = optimiser.max_sharpe_ratio(risk_matrix=risk_matrix, l2_reg=0)
+        if volatility:
+            weights[model], train_sr = optimiser.min_volatility(risk_matrix=risk_matrix, l2_reg=0)
+        else:
+            weights[model], train_sr = optimiser.max_sharpe_ratio(risk_matrix=risk_matrix, l2_reg=0)
 
     for model in ["Covariance", "Covariance Shrinkage", "Exponentially Weighted Covariance"]:
         # Setup
@@ -95,7 +99,10 @@ def mvo(dist_matrices, params, prices_train):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             risk_matrix = optimiser.benchmark_matrix(model)
-            weights[model], train_sr = optimiser.max_sharpe_ratio(risk_matrix=risk_matrix, l2_reg=0)
+            if volatility:
+                weights[model], train_sr = optimiser.min_volatility(risk_matrix=risk_matrix, l2_reg=0)
+            else:
+                weights[model], train_sr = optimiser.max_sharpe_ratio(risk_matrix=risk_matrix, l2_reg=0)
 
     # Equal weights
     weights['Equal'] = weights['Linear'].copy()
@@ -145,22 +152,20 @@ def calculate_sharpe_ratio(weights, prices_test, train_date, end_date):
     return sharpe_ratios
 
 
-def save_results(weights, sharpe_ratios, start_date):
+def save_results(weights, sharpe_ratios, start_date, optimiser):
 
     # Weights
-    weights_copy = {}
     num_stocks = {}
     for model in weights.keys():
-        weights_copy[model] = pd.DataFrame.to_dict(weights[model])
         num_stocks[model] = np.count_nonzero(weights[model])
 
-    results = {'sharpe_ratios': sharpe_ratios, 'num_stocks': num_stocks, 'weights': weights_copy}
+    results = {'sharpe_ratios': sharpe_ratios, 'num_stocks': num_stocks}
 
-    with open(f'results/sp500_{start_dates[i].strftime("%Y-%m-%d")}.json', 'w') as f:
+    with open(f'results/sp500_{start_date}_{optimiser}.json', 'w') as f:
         json.dump(results, f)
 
 
-def make_plots(prices_test, weights, start_date, train_date, end_date):
+def make_plots(prices_test, weights, start_date, train_date, end_date, optimiser):
 
     # Setup fig, ax
     fig, ax = plt.subplots(figsize=(6, 4))
@@ -170,21 +175,34 @@ def make_plots(prices_test, weights, start_date, train_date, end_date):
     sp500 = sp500.div(sp500.iloc[0]).mul(100)
 
     # Plots
-    ax.plot(prices_test, alpha=0.05)
-    for model in ["Linear", "CNN", "Linear + CNN", "Covariance", "Covariance Shrinkage", "Exponentially Weighted Covariance", "Equal"]:
+    for model in ["Linear", "CNN", "Linear + CNN", "Covariance", "Covariance Shrinkage", "Exponentially Weighted Covariance", "HRP" ,"Equal"]:
         ax.plot(prices_test @ weights[model], label=model)
     ax.plot(sp500, label='S&P 500')
+
+    # Plot all prices in background
+    ax.plot(prices_test, alpha=0.05)
 
     ax.set_ylim([50, 200])
     ax.grid()
     ax.legend(fontsize='x-small')
-    ax.tick_params(axis='x', rotation=45)
+    fig.autofmt_xdate()
 
     # Save plot
-    fig.savefig(f'plots/sp500_{start_date}.png', dpi=300, bbox_inches = "tight")
+    fig.savefig(f'plots/sp500_{start_date}_{optimiser}.png', dpi=300, bbox_inches = "tight")
 
 
 if __name__ == '__main__':
+
+    # Parse arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--optimiser", type=str, default="sharpe")
+    args = parser.parse_args()
+    if args.optimiser not in ["sharpe", "volatility"]:
+        raise ValueError("Volatility must be either 'sharpe' or 'volatility'")
+    elif args.optimiser == "sharpe":
+        optimiser = False
+    else:
+        optimiser = True
 
     # Make folders if necessary
     if not os.path.exists('plots'):
@@ -193,12 +211,12 @@ if __name__ == '__main__':
         os.mkdir('results')
 
     # Setup dates
-    start_dates = ['2017-03-01', '2017-09-01', '2018-03-01', '2018-09-01', '2019-03-01']
+    start_dates = ['2017-03-01', '2017-09-01', '2018-03-01']
     date_format = "%Y-%m-%d"
     start_dates = [datetime.datetime.strptime(date, date_format) for date in start_dates]
-    valid_dates = [date + relativedelta(years=1) for date in start_dates]
-    train_dates = [date + relativedelta(years=2) for date in start_dates]
-    end_dates = [date + relativedelta(years=3, months=6) for date in start_dates]
+    valid_dates = [date + relativedelta(years=2) for date in start_dates]
+    train_dates = [date + relativedelta(years=3) for date in start_dates]
+    end_dates = [date + relativedelta(years=4, months=6) for date in start_dates]
 
     for i in range(len(start_dates)):
 
@@ -222,7 +240,7 @@ if __name__ == '__main__':
         dist_matrices = calculate_dist_matrix(data_train=data_train, models=models, params=params)
 
         # MVO
-        weights = mvo(dist_matrices=dist_matrices, params=params, prices_train=prices_train)
+        weights = mvo(dist_matrices=dist_matrices, params=params, prices_train=prices_train, volatility=optimiser)
 
         # HRP
         weights['HRP'] = hrp_weights(prices_train=prices_train)
@@ -231,7 +249,7 @@ if __name__ == '__main__':
         sharpe_ratios = calculate_sharpe_ratio(weights=weights, prices_test=prices_test, train_date=train_dates[i], end_date=end_dates[i])
 
         # Save weights
-        save_results(weights=weights, sharpe_ratios=sharpe_ratios, start_date=start_dates[i].strftime(date_format))
+        save_results(weights=weights, sharpe_ratios=sharpe_ratios, start_date=start_dates[i].strftime(date_format), optimiser=args.optimiser)
 
         # Make plots
-        make_plots(prices_test=prices_test, weights=weights, start_date=start_dates[i].strftime(date_format), train_date=train_dates[i], end_date=end_dates[i])
+        make_plots(prices_test=prices_test, weights=weights, start_date=start_dates[i].strftime(date_format), train_date=train_dates[i], end_date=end_dates[i], optimiser=args.optimiser)

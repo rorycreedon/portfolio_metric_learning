@@ -26,7 +26,7 @@ torch.manual_seed(0)
 np.random.seed(0)
 
 
-def objective(trial, model):
+def objective(trial, model, opt):
     # Params
     input_size = data_valid.shape[1]
     num_epochs = 20
@@ -84,7 +84,12 @@ def objective(trial, model):
             warnings.simplefilter("ignore")
             # Get weights
             risk_matrix = optimiser.make_risk_matrix(dist_matrix, C=C)
-            weights, train_sr = optimiser.max_sharpe_ratio(risk_matrix=risk_matrix, l2_reg=0)
+            if opt == 'volatility':
+                weights, train_sr = optimiser.min_volatility(risk_matrix=risk_matrix, l2_reg=0)
+            elif opt == 'sharpe':
+                weights, train_sr = optimiser.max_sharpe_ratio(risk_matrix=risk_matrix, l2_reg=0)
+            else:
+                raise ValueError('Incorrect optimisation method passed, should be "volatility" or "sharpe"')
     except:
         return -np.inf
 
@@ -119,25 +124,30 @@ if __name__ == '__main__':
 
         # Sort into a dict
         params = {'Linear': {}, 'CNN': {}, 'Linear + CNN': {}}
+        for m in ['Linear', 'CNN', 'Linear + CNN']:
+            for opt in ['volatility', 'sharpe']:
+                params[m][opt] = {}
 
         # Optimize
         for m in ['Linear', 'CNN', 'Linear + CNN']:
 
-            # Optuna optimisation
-            print(m, start_dates[i])
-            study = optuna.create_study(direction="maximize")
-            study.optimize(lambda trial: objective(trial, m), n_trials=50, show_progress_bar=True)
-            print(study.best_params)
+            for opt in ['volatility', 'sharpe']:
 
-            if m != 'Linear + CNN':
-                params[m]['autoencoder'] = {'latent_size': study.best_params['latent_size'], 'hidden_size': study.best_params['hidden_size'], 'batch_size': study.best_params['batch_size']}
-            else:
-                params[m]['autoencoder'] = {'latent_size': study.best_params['latent_size'], 'hidden_size': study.best_params['hidden_size1'], 'hidden_size2': study.best_params['hidden_size2'], 'batch_size': study.best_params['batch_size']}
+                # Optuna optimisation
+                print(m, opt, start_dates[i])
+                study = optuna.create_study(direction="maximize")
+                study.optimize(lambda trial: objective(trial, m, opt), n_trials=50, show_progress_bar=True)
+                print(study.best_params)
 
-            params[m]['dist_matrix'] = {'latent_size': study.best_params['latent_size'], 'p': study.best_params['p'],
-                                     'max_iterations': 50, 'autowarp_batch_size': study.best_params['autowarp_batch_size'],
-                                     'lr': study.best_params['lr']}
-            params[m]['risk_matrix'] = {'C': study.best_params['C']}
+                if m != 'Linear + CNN':
+                    params[m][opt]['autoencoder'] = {'latent_size': study.best_params['latent_size'], 'hidden_size': study.best_params['hidden_size'], 'batch_size': study.best_params['batch_size']}
+                else:
+                    params[m][opt]['autoencoder'] = {'latent_size': study.best_params['latent_size'], 'hidden_size': study.best_params['hidden_size1'], 'hidden_size2': study.best_params['hidden_size2'], 'batch_size': study.best_params['batch_size']}
+
+                params[m][opt]['dist_matrix'] = {'latent_size': study.best_params['latent_size'], 'p': study.best_params['p'],
+                                         'max_iterations': 50, 'autowarp_batch_size': study.best_params['autowarp_batch_size'],
+                                         'lr': study.best_params['lr']}
+                params[m][opt]['risk_matrix'] = {'C': study.best_params['C']}
 
 
         # Save best params in a json
