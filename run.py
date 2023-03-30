@@ -45,32 +45,32 @@ def load_params(start_date):
     return params
 
 
-def train_autoenoders(data_train, num_epochs, params):
+def train_autoenoders(data_train, num_epochs, params, opt):
 
     models = {}
     models['Linear'] = train_autoencoder(LinearAutoencoder, input_size=data_train.shape[1], num_epochs=num_epochs,
-                                         data=data_train, verbose=False, **params['Linear']['autoencoder'])
+                                         data=data_train, verbose=False, **params['Linear'][opt]['autoencoder'])
     models['CNN'] = train_autoencoder(ConvAutoencoder, input_size=data_train.shape[1], num_epochs=num_epochs,
-                                      data=data_train, verbose=False, **params['CNN']['autoencoder'])
+                                      data=data_train, verbose=False, **params['CNN'][opt]['autoencoder'])
     models['Linear + CNN'] = train_autoencoder(ConvLinearAutoEncoder, input_size=data_train.shape[1],
                                                num_epochs=num_epochs, data=data_train, verbose=False,
-                                               **params['Linear + CNN']['autoencoder'])
+                                               **params['Linear + CNN'][opt]['autoencoder'])
     return models
 
 
-def calculate_dist_matrix(data_train, models, params):
+def calculate_dist_matrix(data_train, models, params, opt):
 
     dist_matrices = {}
     for model in ['Linear + CNN', 'Linear', 'CNN']:
         print(model, "- calculating distance matrix")
-        learner = AutoWarp(models[model], data_train, **params[model]['dist_matrix'])
+        learner = AutoWarp(models[model], data_train, **params[model][opt]['dist_matrix'])
         learner.learn_metric()
         dist_matrices[model] = learner.create_distance_matrix()
 
     return dist_matrices
 
 
-def mvo(dist_matrices, params, prices_train, volatility=True):
+def mvo(dist_matrices, params, prices_train, opt):
 
     # Empty dict for weights
     weights = {}
@@ -83,26 +83,29 @@ def mvo(dist_matrices, params, prices_train, volatility=True):
 
         # Get weights
         print(model, "- making risk matrix")
-        risk_matrix = optimiser.make_risk_matrix(dist_matrices[model], **params[model]['risk_matrix'])
-        if volatility:
+        risk_matrix = optimiser.make_risk_matrix(dist_matrices[model], **params[opt][model]['risk_matrix'])
+        if opt == 'volatility':
             weights[model], train_sr = optimiser.min_volatility(risk_matrix=risk_matrix, l2_reg=0)
-        else:
+        elif opt == 'sharpe':
             weights[model], train_sr = optimiser.max_sharpe_ratio(risk_matrix=risk_matrix, l2_reg=0)
+        else:
+            raise ValueError("Invalid opt")
 
     for model in ["Covariance", "Covariance Shrinkage", "Exponentially Weighted Covariance"]:
         # Setup
         e_returns = mean_historical_return(prices_train)
-        optimiser = MeanVarianceOptimisation(expected_returns=e_returns, prices=prices_train, solver='OSQP',
-                                             weight_bounds=(0, 1))
+        optimiser = MeanVarianceOptimisation(expected_returns=e_returns, prices=prices_train, solver='OSQP', weight_bounds=(0, 1))
 
         # Get weights
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             risk_matrix = optimiser.benchmark_matrix(model)
-            if volatility:
+            if opt == 'volatility':
                 weights[model], train_sr = optimiser.min_volatility(risk_matrix=risk_matrix, l2_reg=0)
-            else:
+            elif opt == 'sharpe':
                 weights[model], train_sr = optimiser.max_sharpe_ratio(risk_matrix=risk_matrix, l2_reg=0)
+            else:
+                raise ValueError("Invalid opt")
 
     # Equal weights
     weights['Equal'] = weights['Linear'].copy()
@@ -152,7 +155,7 @@ def calculate_sharpe_ratio(weights, prices_test, train_date, end_date):
     return sharpe_ratios
 
 
-def save_results(weights, sharpe_ratios, start_date, optimiser):
+def save_results(weights, sharpe_ratios, start_date, opt):
 
     # Weights
     num_stocks = {}
@@ -161,11 +164,11 @@ def save_results(weights, sharpe_ratios, start_date, optimiser):
 
     results = {'sharpe_ratios': sharpe_ratios, 'num_stocks': num_stocks}
 
-    with open(f'results/sp500_{start_date}_{optimiser}.json', 'w') as f:
+    with open(f'results/sp500_{start_date}_{opt}.json', 'w') as f:
         json.dump(results, f)
 
 
-def make_plots(prices_test, weights, start_date, train_date, end_date, optimiser):
+def make_plots(prices_test, weights, start_date, train_date, end_date, opt):
 
     # Setup fig, ax
     fig, ax = plt.subplots(figsize=(6, 4))
@@ -188,21 +191,17 @@ def make_plots(prices_test, weights, start_date, train_date, end_date, optimiser
     fig.autofmt_xdate()
 
     # Save plot
-    fig.savefig(f'plots/sp500_{start_date}_{optimiser}.png', dpi=300, bbox_inches = "tight")
+    fig.savefig(f'plots/sp500_{start_date}_{opt}.png', dpi=300, bbox_inches = "tight")
 
 
 if __name__ == '__main__':
 
     # Parse arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument("--optimiser", type=str, default="sharpe")
+    parser.add_argument("--opt", type=str, default="sharpe")
     args = parser.parse_args()
-    if args.optimiser not in ["sharpe", "volatility"]:
+    if args.opt not in ["sharpe", "volatility"]:
         raise ValueError("Volatility must be either 'sharpe' or 'volatility'")
-    elif args.optimiser == "sharpe":
-        optimiser = False
-    else:
-        optimiser = True
 
     # Make folders if necessary
     if not os.path.exists('plots'):
@@ -234,13 +233,13 @@ if __name__ == '__main__':
         params = load_params(start_date=start_dates[i].strftime(date_format))
 
         # Train autoencoders
-        models = train_autoenoders(data_train=data_train, num_epochs=20, params=params)
+        models = train_autoenoders(data_train=data_train, num_epochs=20, params=params, opt=args.opt)
 
         # Calculate distance matrices
-        dist_matrices = calculate_dist_matrix(data_train=data_train, models=models, params=params)
+        dist_matrices = calculate_dist_matrix(data_train=data_train, models=models, params=params, opt=args.opt)
 
         # MVO
-        weights = mvo(dist_matrices=dist_matrices, params=params, prices_train=prices_train, volatility=optimiser)
+        weights = mvo(dist_matrices=dist_matrices, params=params, prices_train=prices_train, opt=args.opt)
 
         # HRP
         weights['HRP'] = hrp_weights(prices_train=prices_train)
@@ -249,7 +248,7 @@ if __name__ == '__main__':
         sharpe_ratios = calculate_sharpe_ratio(weights=weights, prices_test=prices_test, train_date=train_dates[i], end_date=end_dates[i])
 
         # Save weights
-        save_results(weights=weights, sharpe_ratios=sharpe_ratios, start_date=start_dates[i].strftime(date_format), optimiser=args.optimiser)
+        save_results(weights=weights, sharpe_ratios=sharpe_ratios, start_date=start_dates[i].strftime(date_format), opt=args.opt)
 
         # Make plots
-        make_plots(prices_test=prices_test, weights=weights, start_date=start_dates[i].strftime(date_format), train_date=train_dates[i], end_date=end_dates[i], optimiser=args.optimiser)
+        make_plots(prices_test=prices_test, weights=weights, start_date=start_dates[i].strftime(date_format), train_date=train_dates[i], end_date=end_dates[i], opt=args.opt)
