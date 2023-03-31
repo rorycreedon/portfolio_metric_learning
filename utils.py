@@ -2,7 +2,6 @@ import numpy as np
 from scipy.linalg import eigh
 import pandas as pd
 import warnings
-import numpy as np
 from datetime import datetime
 import yfinance as yf
 from dateutil.relativedelta import relativedelta
