@@ -27,6 +27,22 @@ np.random.seed(0)
 
 
 def objective(trial, model, opt):
+    # Data hyperparams
+    returns = trial.suggest_categorical('returns', [True, False])
+    momentum = trial.suggest_categorical('momentum', [True, False])
+
+    # Use correct data based on hyperparams
+    if returns is True and momentum is True:
+        data_valid = data_valid_sets['returns_True']['momentum_True']
+    elif returns is True and momentum is False:
+        data_valid = data_valid_sets['returns_True']['momentum_False']
+    elif returns is False and momentum is True:
+        data_valid = data_valid_sets['returns_False']['momentum_True']
+    elif returns is False and momentum is False:
+        data_valid = data_valid_sets['returns_False']['momentum_False']
+    else:
+        raise ValueError('Invalid data combination')
+
     # Params
     input_size = data_valid.shape[1]
     num_epochs = 20
@@ -104,7 +120,7 @@ if __name__ == '__main__':
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
     # Setup dates
-    start_dates = ['2017-03-01', '2017-09-01', '2018-03-01']
+    start_dates = ['2017-03-01', '2017-09-01', '2018-03-01', '2018-09-01']
     date_format = "%Y-%m-%d"
     start_dates = [datetime.datetime.strptime(date, date_format) for date in start_dates]
     valid_dates = [date + relativedelta(years=2) for date in start_dates]
@@ -119,8 +135,40 @@ if __name__ == '__main__':
         download_all_data(sp500_ratios, start_dates[i].strftime("%Y-%m-%d"))
 
         # Get numpy data and prices
-        _, prices_valid_train, prices_valid_valid, _ = utils.split_prices(start_date=start_dates[i], valid_date=valid_dates[i], train_date=train_dates[i], end_date=end_dates[i], train_valid_split=2/3)
-        _, data_valid = utils.split_orbis_data(start_date=start_dates[i], valid_date=valid_dates[i], train_date=train_dates[i], returns=True, momentum=True, train_valid_split=2/3)
+        data_valid_sets = {'returns_True': {'momentum_True': {}, 'momentum_False': {}},
+                           'returns_False': {'momentum_True': {}, 'momentum_False': {}}}
+
+        data_valid_sets['returns_True']['momentum_True'] = \
+        utils.split_data(start_date=start_dates[i].strftime(date_format),
+                         valid_date=valid_dates[i].strftime(date_format),
+                         train_date=train_dates[i].strftime(date_format), end_date=end_dates[i].strftime(date_format),
+                         train_valid_split=2 / 3, returns=True, momentum=True)[0][1]
+
+        data_valid_sets['returns_False']['momentum_True'] = \
+        utils.split_data(start_date=start_dates[i].strftime(date_format),
+                         valid_date=valid_dates[i].strftime(date_format),
+                         train_date=train_dates[i].strftime(date_format), end_date=end_dates[i].strftime(date_format),
+                         train_valid_split=2 / 3, returns=False, momentum=True)[0][1]
+
+        data_valid_sets['returns_True']['momentum_False'] = \
+        utils.split_data(start_date=start_dates[i].strftime(date_format),
+                         valid_date=valid_dates[i].strftime(date_format),
+                         train_date=train_dates[i].strftime(date_format), end_date=end_dates[i].strftime(date_format),
+                         train_valid_split=2 / 3, returns=True, momentum=False)[0][1]
+
+        data_valid_sets['returns_False']['momentum_False'] = \
+        utils.split_data(start_date=start_dates[i].strftime(date_format),
+                         valid_date=valid_dates[i].strftime(date_format),
+                         train_date=train_dates[i].strftime(date_format), end_date=end_dates[i].strftime(date_format),
+                         train_valid_split=2 / 3, returns=False, momentum=False)[0][1]
+
+        _, price_dfs = utils.split_data(start_date=start_dates[i].strftime(date_format),
+                                        valid_date=valid_dates[i].strftime(date_format),
+                                        train_date=train_dates[i].strftime(date_format),
+                                        end_date=end_dates[i].strftime(date_format), train_valid_split=2 / 3)
+
+        prices_valid_train = price_dfs[1]
+        prices_valid_valid = price_dfs[2]
 
         # Sort into a dict
         params = {'Linear': {}, 'CNN': {}, 'Linear + CNN': {}}
@@ -136,20 +184,28 @@ if __name__ == '__main__':
                 # Optuna optimisation
                 print(m, opt, start_dates[i])
                 study = optuna.create_study(direction="maximize")
-                study.optimize(lambda trial: objective(trial, m, opt), n_trials=50, show_progress_bar=True)
+                study.optimize(lambda trial: objective(trial, m, opt), n_trials=100, show_progress_bar=True)
                 print(study.best_params)
 
                 if m != 'Linear + CNN':
-                    params[m][opt]['autoencoder'] = {'latent_size': study.best_params['latent_size'], 'hidden_size': study.best_params['hidden_size'], 'batch_size': study.best_params['batch_size']}
+                    params[m][opt]['autoencoder'] = {'latent_size': study.best_params['latent_size'],
+                                                     'hidden_size': study.best_params['hidden_size'],
+                                                     'batch_size': study.best_params['batch_size']}
                 else:
-                    params[m][opt]['autoencoder'] = {'latent_size': study.best_params['latent_size'], 'hidden_size': study.best_params['hidden_size1'], 'hidden_size2': study.best_params['hidden_size2'], 'batch_size': study.best_params['batch_size']}
+                    params[m][opt]['autoencoder'] = {'latent_size': study.best_params['latent_size'],
+                                                     'hidden_size': study.best_params['hidden_size1'],
+                                                     'hidden_size2': study.best_params['hidden_size2'],
+                                                     'batch_size': study.best_params['batch_size']}
 
-                params[m][opt]['dist_matrix'] = {'latent_size': study.best_params['latent_size'], 'p': study.best_params['p'],
-                                         'max_iterations': 50, 'autowarp_batch_size': study.best_params['autowarp_batch_size'],
-                                         'lr': study.best_params['lr']}
+                params[m][opt]['dist_matrix'] = {'latent_size': study.best_params['latent_size'],
+                                                 'p': study.best_params['p'],
+                                                 'max_iterations': 50,
+                                                 'autowarp_batch_size': study.best_params['autowarp_batch_size'],
+                                                 'lr': study.best_params['lr']}
                 params[m][opt]['risk_matrix'] = {'C': study.best_params['C']}
+                params[m][opt]['data'] = {'returns': study.best_params['returns'],
+                                          'momentum': study.best_params['momentum']}
 
-
-        # Save best params in a json
+                # Save best params in a json
         with open(f'params/sp500_{start_dates[i].strftime("%Y-%m-%d")}.json', 'w') as f:
             json.dump(params, f)
