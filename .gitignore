@@ -1,5 +1,5 @@
 # Added folders to ignore
-data/
+data/sp500_data.pkl
 .idea/
 
 # Byte-compiled / optimized / DLL files

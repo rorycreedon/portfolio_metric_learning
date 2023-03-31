@@ -2,7 +2,7 @@ import torch
 
 # Other files
 import utils
-from orbis_yf_data import download_all_data
+from data.orbis_yf_data import download_all_data
 from models.mean_variance_optimisation import MeanVarianceOptimisation
 from models.autoencoders import LinearAutoencoder, ConvAutoencoder, ConvLinearAutoEncoder, train_autoencoder
 from models.autowarp import AutoWarp
