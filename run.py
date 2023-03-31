@@ -5,6 +5,7 @@ import utils
 from models.autowarp import AutoWarp
 from models.mean_variance_optimisation import MeanVarianceOptimisation
 from models.autoencoders import LinearAutoencoder, ConvAutoencoder, ConvLinearAutoEncoder, train_autoencoder
+from models.fama_french import FamaFrench
 from orbis_yf_data import download_all_data
 
 # General imports
@@ -42,6 +43,7 @@ def load_params(start_date):
 
     with open(f'params/sp500_{start_date}.json') as f:
         params = json.load(f)
+
     return params
 
 
@@ -83,7 +85,7 @@ def mvo(dist_matrices, params, prices_train, opt):
 
         # Get weights
         print(model, "- making risk matrix")
-        risk_matrix = optimiser.make_risk_matrix(dist_matrices[model], **params[opt][model]['risk_matrix'])
+        risk_matrix = optimiser.make_risk_matrix(dist_matrices[model], **params[model][opt]['risk_matrix'])
         if opt == 'volatility':
             weights[model], train_sr = optimiser.min_volatility(risk_matrix=risk_matrix, l2_reg=0)
         elif opt == 'sharpe':
@@ -91,7 +93,8 @@ def mvo(dist_matrices, params, prices_train, opt):
         else:
             raise ValueError("Invalid opt")
 
-    for model in ["Covariance", "Covariance Shrinkage", "Exponentially Weighted Covariance"]:
+    # Benchmark models
+    for model in ["Covariance", "Covariance Shrinkage", "EW Covariance"]:
         # Setup
         e_returns = mean_historical_return(prices_train)
         optimiser = MeanVarianceOptimisation(expected_returns=e_returns, prices=prices_train, solver='OSQP', weight_bounds=(0, 1))
@@ -106,6 +109,16 @@ def mvo(dist_matrices, params, prices_train, opt):
                 weights[model], train_sr = optimiser.max_sharpe_ratio(risk_matrix=risk_matrix, l2_reg=0)
             else:
                 raise ValueError("Invalid opt")
+
+    # Fama-French
+    fama_french = FamaFrench(prices_train, file_path='data/F-F_Research_Data_Factors_daily.CSV', n_rows=25419)
+    risk_matrix = fama_french.get_covariance_matrix()
+    if opt == 'volatility':
+        weights['Fama-French'], train_sr = optimiser.min_volatility(risk_matrix=risk_matrix, l2_reg=0)
+    elif opt == 'sharpe':
+        weights['Fama-French'], train_sr = optimiser.max_sharpe_ratio(risk_matrix=risk_matrix, l2_reg=0)
+    else:
+        raise ValueError("Invalid opt")
 
     # Equal weights
     weights['Equal'] = weights['Linear'].copy()
@@ -127,30 +140,8 @@ def calculate_sharpe_ratio(weights, prices_test, train_date, end_date):
     # Empty dict for sharpe ratios
     sharpe_ratios = {}
 
-    for model in ["Linear", "CNN", "Linear + CNN", "Covariance", "Covariance Shrinkage", "Exponentially Weighted Covariance", "HRP", "Equal"]:
+    for model in weights.keys():
         sharpe_ratios[model] = utils.calculate_sharpe_ratio(prices=prices_test, weights=weights[model])
-
-    # Download S&P 500 data
-    sp500 = yf.download("^GSPC", start=train_date, end=end_date, period="1d", progress=False)['Adj Close']
-    sp500 = sp500.div(sp500.iloc[0]).mul(100)
-
-    # Download EFFR data
-    with warnings.catch_warnings(record=True):
-        warnings.simplefilter("always")
-        effr = pd.read_excel('data/EFFR.xlsx', sheet_name='Results', index_col=0, usecols='A:C', engine="openpyxl")
-    effr = effr.drop(columns='Rate Type', axis=1)
-    effr.index = pd.to_datetime(effr.index)
-    effr['Rate (%)'] = effr['Rate (%)'] / (100 * 252)
-
-    # S&P 500 sharpe ratio
-    sp500_returns = ((sp500 / sp500.shift(1)) - 1).dropna()
-    sp500_returns = pd.merge(sp500_returns, effr, how='left', left_index=True, right_index=True)
-    sp500_returns['Rate (%)'] = sp500_returns['Rate (%)'].fillna(method='ffill')
-    assert sp500_returns.isnull().sum().sum() == 0
-    sp500_returns['excess_returns'] = sp500_returns['Adj Close'] - sp500_returns['Rate (%)']
-    avg_return = sp500_returns['excess_returns'].mean() * 252
-    std = sp500_returns['excess_returns'].std() * np.sqrt(252)
-    sharpe_ratios['S&P 500'] = avg_return / std
 
     return sharpe_ratios
 
@@ -173,14 +164,9 @@ def make_plots(prices_test, weights, start_date, train_date, end_date, opt):
     # Setup fig, ax
     fig, ax = plt.subplots(figsize=(6, 4))
 
-    # S&P 500
-    sp500 = yf.download("^GSPC", start=train_date, end=end_date, period="1d", progress=False)['Adj Close']
-    sp500 = sp500.div(sp500.iloc[0]).mul(100)
-
     # Plots
-    for model in ["Linear", "CNN", "Linear + CNN", "Covariance", "Covariance Shrinkage", "Exponentially Weighted Covariance", "HRP" ,"Equal"]:
+    for model in weights.keys():
         ax.plot(prices_test @ weights[model], label=model)
-    ax.plot(sp500, label='S&P 500')
 
     # Plot all prices in background
     ax.plot(prices_test, alpha=0.05)

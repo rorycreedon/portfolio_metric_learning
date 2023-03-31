@@ -55,15 +55,14 @@ class MeanVarianceOptimisation:
 
     def benchmark_matrix(self, benchmark_model):
         """
-        Calculates the benchmark risk matrix
-        :param benchmark_model: the benchmark model being used. Currently have ["Covariance", "Covariance Shrinkage", "Exponentially weighted Covariance"].
-        :return: risk matrix
+        Calculates the benchmark risk matrix :param benchmark_model: the benchmark model being used. Currently,
+        have ["Covariance", "Covariance Shrinkage", "EW Covariance"]. :return: risk matrix
         """
         if benchmark_model == "Covariance":
             risk_matrix = sample_cov(self.prices)
         elif benchmark_model == "Covariance Shrinkage":
             risk_matrix = CovarianceShrinkage(self.prices).ledoit_wolf()
-        elif benchmark_model == "Exponentially Weighted Covariance":
+        elif benchmark_model == "EW Covariance":
             risk_matrix = exp_cov(self.prices)
         else:
             raise ValueError("Not in list of benchmarks")
