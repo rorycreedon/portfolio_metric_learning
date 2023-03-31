@@ -3,6 +3,9 @@ from scipy.linalg import eigh
 import pandas as pd
 import warnings
 import numpy as np
+from datetime import datetime
+import yfinance as yf
+from dateutil.relativedelta import relativedelta
 
 
 def convert_to_numpy(df):
@@ -12,7 +15,62 @@ def convert_to_numpy(df):
     return np.stack(variables, axis=2)
 
 
-def split_orbis_data(start_date, valid_date, train_date, train_valid_split=2/3, returns=False, momentum=False):
+def split_data(start_date, valid_date, train_date, end_date, train_valid_split=2 / 3, returns=False, momentum=False):
+    """
+    Split Orbis and price data into train, validation and test sets
+    :param start_date: start date of data
+    :param valid_date: validation start date
+    :param train_date: train start date
+    :param end_date: end of test set
+    :param train_valid_split: train/valid split
+    :param returns: Whether to include returns
+    :param momentum: Whether to include momentum
+    :return: data, a list of data_train, data_valid_train and prices, a list of price_train, price_valid_train, price_valid_valid, price_test
+    """
+    # Clean data
+    data = clean_orbis_data(start_date=start_date, returns=returns, momentum=momentum)
+
+    # Train number
+    train_number = round(train_valid_split * np.unique(data.columns.get_level_values(1)).shape[0])
+
+    # Check if all price data needed is included in data
+    if data.index[-1] >= datetime.strptime(end_date, "%Y-%m-%d"):
+        price_data = pd.read_pickle('data/sp500_data.pkl')['Price']
+    else:
+        # Download price data for test set
+        start_price_date = datetime.strptime(start_date, "%Y-%m-%d")
+        tickers = np.unique(data.columns.get_level_values(1))
+        while True:
+            try:
+                price_data = yf.download(list(tickers), start=start_price_date, end=end_date)['Adj Close']
+                break
+            except:
+                start_price_date += relativedelta(days=1)
+
+        # Check if any tickers are missing
+        if len(np.unique(data.columns.get_level_values(1))) != price_data.shape[1]:
+            # Drop missing tickers from data
+            missing_tickers = list(set(np.unique(data.columns.get_level_values(1))) - set(price_data.columns))
+            data = data.drop(missing_tickers, axis=1, level=1)
+
+    # Split into train and validation
+    data_train = convert_to_numpy(data[data.index < train_date])[:train_number]
+    data_valid_train = convert_to_numpy(data[data.index < valid_date])[train_number:]
+
+    # Clean up price data
+    price_train, price_valid_train, price_valid_valid, price_test = split_prices(data=price_data, start_date=start_date,
+                                                                                 valid_date=valid_date,
+                                                                                 train_date=train_date,
+                                                                                 end_date=end_date,
+                                                                                 train_valid_split=train_valid_split)
+
+    data = [data_train, data_valid_train]
+    prices = [price_train, price_valid_train, price_valid_valid, price_test]
+
+    return data, prices
+
+
+def clean_orbis_data(start_date, returns=False, momentum=False):
     """
     Split Orbis data into train and validation
     :param start_date: start date of the data
@@ -25,9 +83,6 @@ def split_orbis_data(start_date, valid_date, train_date, train_valid_split=2/3, 
     """
     data = pd.read_pickle('data/sp500_data.pkl')
 
-    # Train number
-    train_number = round(train_valid_split*np.unique(data.columns.get_level_values(1)).shape[0])
-
     # 100 indexing price and volume
     data = data[data.index >= start_date]
     data['Price'] = data['Price'].div(data['Price'].iloc[0]).mul(100)
@@ -37,7 +92,6 @@ def split_orbis_data(start_date, valid_date, train_date, train_valid_split=2/3, 
         returns = data.xs('Price', axis=1, level=0).pct_change()
         returns.columns = pd.MultiIndex.from_product([['Returns'], returns.columns])
         data = pd.concat([data, returns], axis=1)
-        # data['Price Returns'] = (data['Price'] / data['Price'].shift(1)) - 1
         data = data.dropna(axis=0)
 
     if momentum is False:
@@ -46,19 +100,19 @@ def split_orbis_data(start_date, valid_date, train_date, train_valid_split=2/3, 
         data.columns = data.columns.remove_unused_levels()
 
     # Minmax scale each first level index column
-    standardise = lambda group: (group - group.min()) / (group.max() - group.min())
+    #standardise = lambda group: (group - group.min()) / (group.max() - group.min())
+    standardise = lambda group: (group - group.min()) / (group.max() - group.min()) if (group.max() - group.min()) != 0 else group * 0
     data = data.groupby(level=0, axis=1).transform(standardise)
 
-    # Split into train and validation
-    train = convert_to_numpy(data[data.index < train_date])[:train_number]
-    valid_train = convert_to_numpy(data[data.index < valid_date])[train_number:]
+    assert data.isna().sum().sum() == 0, 'NaNs in data after standardisation'
 
-    return train, valid_train
+    return data
 
 
-def split_prices(start_date, valid_date, train_date, end_date, train_valid_split=2/3):
+def split_prices(data, start_date, valid_date, train_date, end_date, train_valid_split=2 / 3):
     """
     Split YahooFinance price data into train, validation and test sets
+    :param data: YahooFinance price data
     :param start_date: start date of the data
     :param valid_date: start date of the validation set
     :param train_date: end date of the training set
@@ -66,7 +120,7 @@ def split_prices(start_date, valid_date, train_date, end_date, train_valid_split
     :param train_valid_split: Train/valid split
     :return:train, valid_train, valid_valid and test
     """
-    data = pd.read_pickle('data/sp500_data.pkl')['Price']
+    # data = pd.read_pickle('data/sp500_data.pkl')['Price']
 
     # Train number
     train_number = round(train_valid_split * data.shape[-1])
@@ -98,13 +152,13 @@ def average_rf_rate(prices, days):
         effr = pd.read_excel('data/EFFR.xlsx', sheet_name='Results', index_col=0, usecols='A:C', engine="openpyxl")
     effr = effr.drop(columns='Rate Type', axis=1)
     effr.index = pd.to_datetime(effr.index)
-    effr['Rate (%)'] = effr['Rate (%)'] / (100*days)
+    effr['Rate (%)'] = effr['Rate (%)'] / (100 * days)
 
     # Merge with prices to get relevant days
     avg_rf = pd.merge(prices.iloc[:, 0].rename('prices'), effr, how='left', left_index=True, right_index=True)
     avg_rf['Rate (%)'] = avg_rf['Rate (%)'].fillna(method='ffill')
 
-    return avg_rf['Rate (%)'].mean()/100
+    return avg_rf['Rate (%)'].mean() / 100
 
 
 def calculate_sharpe_ratio(weights, prices, days=252):
@@ -122,7 +176,7 @@ def calculate_sharpe_ratio(weights, prices, days=252):
         effr = pd.read_excel('data/EFFR.xlsx', sheet_name='Results', index_col=0, usecols='A:C', engine="openpyxl")
     effr = effr.drop(columns='Rate Type', axis=1)
     effr.index = pd.to_datetime(effr.index)
-    effr['Rate (%)'] = effr['Rate (%)'] / (100*252)
+    effr['Rate (%)'] = effr['Rate (%)'] / (100 * 252)
 
     # Calculate returns
     returns = (prices @ weights) / (prices @ weights).shift(1) - 1
@@ -139,6 +193,7 @@ def calculate_sharpe_ratio(weights, prices, days=252):
     std = returns['excess_returns'].std() * np.sqrt(days)
     sharpe = avg_return / std
     return sharpe
+
 
 def max_drawdown(prices, weights):
     """
