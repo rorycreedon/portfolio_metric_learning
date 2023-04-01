@@ -41,7 +41,7 @@ def split_data(start_date, valid_date, train_date, end_date, train_valid_split=2
         tickers = np.unique(data.columns.get_level_values(1))
         while True:
             try:
-                price_data = yf.download(list(tickers), start=start_price_date, end=end_date)['Adj Close']
+                price_data = yf.download(list(tickers), start=start_price_date, end=end_date, progress=False)['Adj Close']
                 break
             except:
                 start_price_date += relativedelta(days=1)
@@ -57,11 +57,7 @@ def split_data(start_date, valid_date, train_date, end_date, train_valid_split=2
     data_valid_train = convert_to_numpy(data[data.index < valid_date])[train_number:]
 
     # Clean up price data
-    price_train, price_valid_train, price_valid_valid, price_test = split_prices(data=price_data, start_date=start_date,
-                                                                                 valid_date=valid_date,
-                                                                                 train_date=train_date,
-                                                                                 end_date=end_date,
-                                                                                 train_valid_split=train_valid_split)
+    price_train, price_valid_train, price_valid_valid, price_test = split_prices(data=price_data, start_date=start_date, valid_date=valid_date, train_date=train_date, end_date=end_date, train_valid_split=train_valid_split)
 
     data = [data_train, data_valid_train]
     prices = [price_train, price_valid_train, price_valid_valid, price_test]
@@ -99,7 +95,6 @@ def clean_orbis_data(start_date, returns=False, momentum=False):
         data.columns = data.columns.remove_unused_levels()
 
     # Minmax scale each first level index column
-    #standardise = lambda group: (group - group.min()) / (group.max() - group.min())
     standardise = lambda group: (group - group.min()) / (group.max() - group.min()) if (group.max() - group.min()) != 0 else group * 0
     data = data.groupby(level=0, axis=1).transform(standardise)
 
@@ -194,7 +189,7 @@ def calculate_sharpe_ratio(weights, prices, days=252):
     return sharpe
 
 
-def max_drawdown(prices, weights):
+def calculate_max_drawdown(prices, weights):
     """
     Calculates the maximum drawdown of a portfolio
     :param prices: Price time series
@@ -206,6 +201,35 @@ def max_drawdown(prices, weights):
     portfolio['drawdown'] = portfolio['running_max'] - portfolio['weights']
     max_drawdown = portfolio['drawdown'].max()
     max_drawdown_pct = max_drawdown / portfolio.loc[portfolio['drawdown'].idxmax(), 'running_max']
+    return max_drawdown_pct
+
+
+def calculate_sp500_sharpe(train_date, end_date):
+    sp500 = yf.download("^GSPC", start=train_date, end=end_date, period="1d", progress=False)['Adj Close']
+    sp500 = sp500.pct_change().dropna()
+
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        effr = pd.read_excel('data/EFFR.xlsx', sheet_name='Results', index_col=0, usecols='A:C', engine="openpyxl")
+    effr = effr.drop(columns='Rate Type', axis=1)
+    effr.index = pd.to_datetime(effr.index)
+    effr['Rate (%)'] = effr['Rate (%)'] / (100 * 252)
+
+    returns = pd.merge(sp500, effr, left_index=True, right_index=True, how='left')
+    returns['excess_returns'] = returns['Adj Close'] - returns['Rate (%)']
+    assert returns['Rate (%)'].isna().sum()
+    sharpe_ratio = returns['excess_returns'].mean() / returns['excess_returns'].std()
+
+    return sharpe_ratio
+
+
+def calculate_sp500_drawdown(train_date, end_date):
+    sp500 = pd.DataFrame(yf.download("^GSPC", start=train_date, end=end_date, period="1d", progress=False)['Adj Close'])
+    sp500['running_max'] = sp500['Adj Close'].cummax()
+    sp500['drawdown'] = sp500['running_max'] - sp500['Adj Close']
+    max_drawdown = sp500['drawdown'].max()
+    max_drawdown_pct = max_drawdown / sp500.loc[sp500['drawdown'].idxmax(), 'running_max']
+
     return max_drawdown_pct
 
 

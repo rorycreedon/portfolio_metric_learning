@@ -69,7 +69,7 @@ def sp500_tickers(start_date='2019-12-23'):
     :return: A list containing the tickers
     """
     # S&P 500 companies only
-    sp500 = pd.read_csv('S&P Tickers.csv')
+    sp500 = pd.read_csv('data/S&P Tickers.csv')
     ticker_list = sp500[sp500['date'] == start_date]['tickers'].iloc[0].split(',')  # last change before 2020-01-01
 
     return ticker_list
@@ -88,14 +88,14 @@ def get_tickers_with_retry(start_date, tickers_function):
             current_date -= datetime.timedelta(days=1)
 
 
-def yf_data(tickers):
+def yf_data(tickers, progress=True):
     """
     Download price, price momentum, volume and volume momentum data from Yahoo Finance
     :param tickers: The tickers to download data for
     :return: A cleaned dataframe containing price, price momentum, volume and volume momentum data from Yahoo Finance
     """
     # Download YF data
-    data = yf.download(tickers, start="2017-01-01", end="2023-01-01")
+    data = yf.download(tickers, start="2017-01-01", end="2023-01-01", progress=progress)
 
     # Reshape
     data = data.reset_index()
@@ -155,19 +155,19 @@ def merge_reshape_data(orbis_ratios, yf_prices):
     return data
 
 
-def download_all_data(sp500_ratios, date):
+def download_all_data(sp500_ratios, date, progress=True):
     # Download S&P 500 data
     orbis_ratios = clean_orbis_ratios(sp500_ratios)
-    yf_all_data = yf_data(get_tickers_with_retry(date, sp500_tickers))
+    yf_all_data = yf_data(get_tickers_with_retry(date, sp500_tickers), progress=progress)
 
     # Merge
     data = merge_reshape_data(orbis_ratios, yf_all_data)
 
     # Save
-    data.to_pickle(f'data/sp500_data.pkl')
+    data.to_pickle('data/sp500_data.pkl')
 
 
 if __name__ == "__main__":
 
     sp500_ratios = pd.read_excel('data/S&P Ratios.xlsx', index_col=0, sheet_name="Results", usecols='C:CU')
-    download_all_data(sp500_ratios, '2019-12-23')
+    download_all_data(sp500_ratios, '2019-12-23', progress=True)

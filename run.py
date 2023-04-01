@@ -18,6 +18,7 @@ import datetime
 from dateutil.relativedelta import relativedelta
 import os
 import argparse
+import yfinance as yf
 
 # Optimisation
 from pypfopt.expected_returns import mean_historical_return
@@ -32,9 +33,7 @@ def load_data(start_date, valid_date, train_date, end_date, params, opt):
     data_dict = {'Linear': {}, 'CNN': {}, 'Linear + CNN': {}}
 
     for model in ['Linear', 'CNN', 'Linear + CNN']:
-        data_arrays, price_dfs = utils.split_data(start_date, valid_date, train_date, end_date, train_valid_split=2 / 3,
-                                                  **params[model][opt]['data'])
-
+        data_arrays, price_dfs = utils.split_data(start_date, valid_date, train_date, end_date, train_valid_split=2 / 3, **params[model][opt]['data'])
         data_dict[model]['data_train'] = data_arrays[0]
 
     prices_train = price_dfs[0]
@@ -50,7 +49,7 @@ def load_params(start_date):
     return params
 
 
-def train_autoenoders(data_dict, num_epochs, params, opt):
+def train_autoencoders(data_dict, num_epochs, params, opt):
     models = {}
     models['Linear'] = train_autoencoder(LinearAutoencoder, input_size=data_dict['Linear']['data_train'].shape[1],
                                          num_epochs=num_epochs,
@@ -120,9 +119,9 @@ def mvo(dist_matrices, params, prices_train, opt):
     # Fama-French
     fama_french = FamaFrench(prices_train, file_path='data/F-F_Research_Data_Factors_daily.CSV', n_rows=25419)
     risk_matrix = fama_french.get_covariance_matrix()
+    optimiser = MeanVarianceOptimisation(expected_returns=e_returns, prices=prices_train, solver='ECOS',
+                                         weight_bounds=(0, 1))
     if opt == 'volatility':
-        optimiser = MeanVarianceOptimisation(expected_returns=e_returns, prices=prices_train, solver='ECOS',
-                                             weight_bounds=(0, 1))
         weights['Fama-French'], train_sr = optimiser.min_volatility(risk_matrix=risk_matrix, l2_reg=0)
     elif opt == 'sharpe':
         weights['Fama-French'], train_sr = optimiser.max_sharpe_ratio(risk_matrix=risk_matrix, l2_reg=0)
@@ -146,16 +145,24 @@ def calculate_sharpe_ratio(weights, prices_test, train_date, end_date):
     for model in weights.keys():
         sharpe_ratios[model] = utils.calculate_sharpe_ratio(prices=prices_test, weights=weights[model])
 
+    # Add S&P 500
+    sharpe_ratios['S&P 500'] = utils.calculate_sp500_sharpe(train_date=train_date, end_date=end_date)
+
+    print(sharpe_ratios)
+
     return sharpe_ratios
 
 
-def save_results(weights, sharpe_ratios, prices_test, start_date, opt):
+def save_results(weights, sharpe_ratios, prices_test, start_date, train_date, end_date, opt):
     # Weights
     num_stocks = {}
     max_drawdown = {}
     for model in weights.keys():
         num_stocks[model] = np.count_nonzero(weights[model])
         max_drawdown[model] = utils.calculate_max_drawdown(prices=prices_test, weights=weights[model])
+
+    # Add S&P 500
+    max_drawdown['S&P 500'] = utils.calculate_sp500_drawdown(train_date=train_date, end_date=end_date)
 
     results = {'sharpe_ratios': sharpe_ratios, 'num_stocks': num_stocks, 'max_drawdown': max_drawdown}
 
@@ -170,6 +177,8 @@ def make_plots(prices_test, weights, start_date, train_date, end_date, opt):
     # Plots
     for model in weights.keys():
         ax.plot(prices_test @ weights[model], label=model)
+    sp500 = yf.download('^GSPC', start=train_date, end=end_date, progress=False)['Adj Close']
+    ax.plot(sp500, label='S&P 500')
 
     # Plot all prices in background
     ax.plot(prices_test, alpha=0.05)
@@ -199,7 +208,7 @@ if __name__ == '__main__':
         os.mkdir('results')
 
     # Setup dates
-    start_dates = ['2017-03-01', '2017-09-01', '2018-03-01']
+    start_dates = ['2017-03-01', '2017-09-01', '2018-03-01', '2018-09-01']
     date_format = "%Y-%m-%d"
     start_dates = [datetime.datetime.strptime(date, date_format) for date in start_dates]
     valid_dates = [date + relativedelta(years=2) for date in start_dates]
@@ -208,24 +217,31 @@ if __name__ == '__main__':
 
     for i in range(len(start_dates)):
         print(f"Start date: {start_dates[i].strftime(date_format)}")
+        print(f"Opt - {args.opt}")
         print("========================================")
 
         # Download data
         sp500_ratios = pd.read_excel('data/S&P Ratios.xlsx', index_col=0, sheet_name="Results", usecols='C:CU')
-        download_all_data(sp500_ratios, start_dates[i].strftime("%Y-%m-%d"))
+        download_all_data(sp500_ratios, start_dates[i].strftime("%Y-%m-%d"), progress=False)
 
         # Load params
         params = load_params(start_date=start_dates[i].strftime(date_format))
+
+        # Quick hack
+        for model in ['Linear', 'CNN', 'Linear + CNN']:
+            params[model][args.opt]['data']['returns'] = False
+            params[model][args.opt]['data']['momentum'] = False
 
         # Load data
         prices_train, prices_test, data_dict = load_data(start_date=start_dates[i].strftime(date_format),
                                                          valid_date=valid_dates[i].strftime(date_format),
                                                          train_date=train_dates[i].strftime(date_format),
                                                          end_date=end_dates[i].strftime(date_format),
-                                                         params=params)
+                                                         params=params,
+                                                         opt=args.opt)
 
         # Train autoencoders
-        models = train_autoenoders(data_dict=data_dict, num_epochs=20, params=params, opt=args.opt)
+        models = train_autoencoders(data_dict=data_dict, num_epochs=20, params=params, opt=args.opt)
 
         # Calculate distance matrices
         dist_matrices = calculate_dist_matrix(data_dict=data_dict, models=models, params=params, opt=args.opt)
@@ -240,7 +256,7 @@ if __name__ == '__main__':
         sharpe_ratios = calculate_sharpe_ratio(weights=weights, prices_test=prices_test, train_date=train_dates[i], end_date=end_dates[i])
 
         # Save weights
-        save_results(weights=weights, sharpe_ratios=sharpe_ratios, prices_test=prices_test, start_date=start_dates[i].strftime(date_format), opt=args.opt)
+        save_results(weights=weights, sharpe_ratios=sharpe_ratios, prices_test=prices_test, start_date=start_dates[i].strftime(date_format), train_date=train_dates[i], end_date=end_dates[i], opt=args.opt)
 
         # Make plots
         make_plots(prices_test=prices_test, weights=weights, start_date=start_dates[i].strftime(date_format), train_date=train_dates[i], end_date=end_dates[i], opt=args.opt)
