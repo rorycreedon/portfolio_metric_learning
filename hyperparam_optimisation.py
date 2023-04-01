@@ -27,21 +27,6 @@ np.random.seed(0)
 
 
 def objective(trial, model, opt):
-    # Data hyperparams
-    returns = trial.suggest_categorical('returns', [True, False])
-    momentum = trial.suggest_categorical('momentum', [True, False])
-
-    # Use correct data based on hyperparams
-    if returns is True and momentum is True:
-        data_valid = data_valid_sets['returns_True']['momentum_True']
-    elif returns is True and momentum is False:
-        data_valid = data_valid_sets['returns_True']['momentum_False']
-    elif returns is False and momentum is True:
-        data_valid = data_valid_sets['returns_False']['momentum_True']
-    elif returns is False and momentum is False:
-        data_valid = data_valid_sets['returns_False']['momentum_False']
-    else:
-        raise ValueError('Invalid data combination')
 
     # Params
     input_size = data_valid.shape[1]
@@ -92,7 +77,7 @@ def objective(trial, model, opt):
 
     # Setup mean variance optimisation
     e_returns = mean_historical_return(prices_valid_train)
-    optimiser = MeanVarianceOptimisation(expected_returns=e_returns, prices=prices_valid_train, solver='OSQP',
+    optimiser = MeanVarianceOptimisation(expected_returns=e_returns, prices=prices_valid_train, solver='ECOS',
                                          weight_bounds=(0, 1))
 
     try:
@@ -130,43 +115,13 @@ if __name__ == '__main__':
     # Loop through dates
     for i in range(len(start_dates)):
 
-        # Download data
-        sp500_ratios = pd.read_excel('data/S&P Ratios.xlsx', index_col=0, sheet_name="Results", usecols='C:CU')
-        download_all_data(sp500_ratios, start_dates[i].strftime("%Y-%m-%d"))
-
         # Get numpy data and prices
-        data_valid_sets = {'returns_True': {'momentum_True': {}, 'momentum_False': {}},
-                           'returns_False': {'momentum_True': {}, 'momentum_False': {}}}
-
-        data_valid_sets['returns_True']['momentum_True'] = \
-        utils.split_data(start_date=start_dates[i].strftime(date_format),
-                         valid_date=valid_dates[i].strftime(date_format),
-                         train_date=train_dates[i].strftime(date_format), end_date=end_dates[i].strftime(date_format),
-                         train_valid_split=2 / 3, returns=True, momentum=True)[0][1]
-
-        data_valid_sets['returns_False']['momentum_True'] = \
-        utils.split_data(start_date=start_dates[i].strftime(date_format),
-                         valid_date=valid_dates[i].strftime(date_format),
-                         train_date=train_dates[i].strftime(date_format), end_date=end_dates[i].strftime(date_format),
-                         train_valid_split=2 / 3, returns=False, momentum=True)[0][1]
-
-        data_valid_sets['returns_True']['momentum_False'] = \
-        utils.split_data(start_date=start_dates[i].strftime(date_format),
-                         valid_date=valid_dates[i].strftime(date_format),
-                         train_date=train_dates[i].strftime(date_format), end_date=end_dates[i].strftime(date_format),
-                         train_valid_split=2 / 3, returns=True, momentum=False)[0][1]
-
-        data_valid_sets['returns_False']['momentum_False'] = \
-        utils.split_data(start_date=start_dates[i].strftime(date_format),
-                         valid_date=valid_dates[i].strftime(date_format),
-                         train_date=train_dates[i].strftime(date_format), end_date=end_dates[i].strftime(date_format),
-                         train_valid_split=2 / 3, returns=False, momentum=False)[0][1]
-
-        _, price_dfs = utils.split_data(start_date=start_dates[i].strftime(date_format),
+        data_arrays, price_dfs = utils.split_data(start_date=start_dates[i].strftime(date_format),
                                         valid_date=valid_dates[i].strftime(date_format),
                                         train_date=train_dates[i].strftime(date_format),
-                                        end_date=end_dates[i].strftime(date_format), train_valid_split=2 / 3)
+                                        end_date=end_dates[i].strftime(date_format), train_valid_split=2 / 3, returns=False, momentum=False)
 
+        data_valid = data_arrays[1]
         prices_valid_train = price_dfs[1]
         prices_valid_valid = price_dfs[2]
 

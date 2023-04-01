@@ -25,6 +25,10 @@ class AutoWarp:
 
         self.optimizer = optim.Adam([self.alpha, self.gamma, self.epsilon], lr=self.lr)
 
+        # Set seed for reproducibility
+        torch.manual_seed(0)
+        np.random.seed(0)
+
     def encodings(self):
         """
         Calculates latent representation of the data from the encoder of the model
@@ -46,9 +50,9 @@ class AutoWarp:
 
         euclidian_distance = get_distance_matrix(self.model, self.data, self.latent_size)
         if np.max(euclidian_distance) == 0:
-            return ValueError("Auto-encoder training error - latent representation of all stocks is all 0")
+            raise ValueError("Auto-encoder training error - latent representation of all stocks is the same")
         if np.max(euclidian_distance) - np.min(euclidian_distance) == 0:
-            return ValueError("Auto-encoder training error - latent representation of all stocks is the same")
+            raise ValueError("Auto-encoder training error")
 
         return euclidian_distance
 

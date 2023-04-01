@@ -29,17 +29,16 @@ torch.manual_seed(0)
 np.random.seed(0)
 
 
-def load_data(start_date, valid_date, train_date, end_date, params, opt):
-    data_dict = {'Linear': {}, 'CNN': {}, 'Linear + CNN': {}}
+def load_data(start_date, valid_date, train_date, end_date):
 
-    for model in ['Linear', 'CNN', 'Linear + CNN']:
-        data_arrays, price_dfs = utils.split_data(start_date, valid_date, train_date, end_date, train_valid_split=2 / 3, **params[model][opt]['data'])
-        data_dict[model]['data_train'] = data_arrays[0]
+    data_arrays, price_dfs = utils.split_data(start_date=start_date, valid_date=valid_date, train_date=train_date, end_date=end_date, train_valid_split=2 / 3, returns=False, momentum=False)
+    data_train = data_arrays[0]
 
     prices_train = price_dfs[0]
     prices_test = price_dfs[3]
 
-    return prices_train, prices_test, data_dict
+
+    return prices_train, prices_test, data_train
 
 
 def load_params(start_date):
@@ -49,30 +48,30 @@ def load_params(start_date):
     return params
 
 
-def train_autoencoders(data_dict, num_epochs, params, opt):
+def train_autoencoders(data_train, num_epochs, params, opt):
     models = {}
-    models['Linear'] = train_autoencoder(LinearAutoencoder, input_size=data_dict['Linear']['data_train'].shape[1],
+    models['Linear'] = train_autoencoder(LinearAutoencoder, input_size=data_train.shape[1],
                                          num_epochs=num_epochs,
-                                         data=data_dict['Linear']['data_train'], verbose=False,
+                                         data=data_train, verbose=False,
                                          **params['Linear'][opt]['autoencoder'])
-    models['CNN'] = train_autoencoder(ConvAutoencoder, input_size=data_dict['CNN']['data_train'].shape[1],
+    models['CNN'] = train_autoencoder(ConvAutoencoder, input_size=data_train.shape[1],
                                       num_epochs=num_epochs,
-                                      data=data_dict['CNN']['data_train'], verbose=False,
+                                      data=data_train, verbose=False,
                                       **params['CNN'][opt]['autoencoder'])
     models['Linear + CNN'] = train_autoencoder(ConvLinearAutoEncoder,
-                                               input_size=data_dict['Linear + CNN']['data_train'].shape[1],
-                                               num_epochs=num_epochs, data=data_dict['Linear + CNN']['data_train'],
+                                               input_size=data_train.shape[1],
+                                               num_epochs=num_epochs, data=data_train,
                                                verbose=False,
                                                **params['Linear + CNN'][opt]['autoencoder'])
     return models
 
 
-def calculate_dist_matrix(data_dict, models, params, opt):
+def calculate_dist_matrix(data_train, models, params, opt):
     dist_matrices = {}
-    for model in ['Linear + CNN', 'Linear', 'CNN']:
+    for model in ['Linear', 'CNN', 'Linear + CNN']:
         print(model, "- calculating distance matrix")
-        learner = AutoWarp(models[model], data_dict[model]['data_train'], **params[model][opt]['dist_matrix'])
-        learner.learn_metric()
+        learner = AutoWarp(models[model], data_train, **params[model][opt]['dist_matrix'])
+        learner.learn_metric(verbose=False)
         dist_matrices[model] = learner.create_distance_matrix()
 
     return dist_matrices
@@ -85,11 +84,10 @@ def mvo(dist_matrices, params, prices_train, opt):
     for model in ["Linear", "CNN", "Linear + CNN"]:
         # Setup
         e_returns = mean_historical_return(prices_train)
-        optimiser = MeanVarianceOptimisation(expected_returns=e_returns, prices=prices_train, solver='OSQP',
+        optimiser = MeanVarianceOptimisation(expected_returns=e_returns, prices=prices_train, solver='ECOS',
                                              weight_bounds=(0, 1))
 
         # Get weights
-        print(model, "- making risk matrix")
         risk_matrix = optimiser.make_risk_matrix(dist_matrices[model], **params[model][opt]['risk_matrix'])
         if opt == 'volatility':
             weights[model], train_sr = optimiser.min_volatility(risk_matrix=risk_matrix, l2_reg=0)
@@ -102,7 +100,7 @@ def mvo(dist_matrices, params, prices_train, opt):
     for model in ["Covariance", "Covariance Shrinkage", "EW Covariance"]:
         # Setup
         e_returns = mean_historical_return(prices_train)
-        optimiser = MeanVarianceOptimisation(expected_returns=e_returns, prices=prices_train, solver='OSQP',
+        optimiser = MeanVarianceOptimisation(expected_returns=e_returns, prices=prices_train, solver='ECOS',
                                              weight_bounds=(0, 1))
 
         # Get weights
@@ -208,7 +206,8 @@ if __name__ == '__main__':
         os.mkdir('results')
 
     # Setup dates
-    start_dates = ['2017-03-01', '2017-09-01', '2018-03-01', '2018-09-01']
+    #start_dates = ['2017-03-01', '2017-09-01', '2018-03-01', '2018-09-01']
+    start_dates = ['2018-09-01']
     date_format = "%Y-%m-%d"
     start_dates = [datetime.datetime.strptime(date, date_format) for date in start_dates]
     valid_dates = [date + relativedelta(years=2) for date in start_dates]
@@ -220,31 +219,20 @@ if __name__ == '__main__':
         print(f"Opt - {args.opt}")
         print("========================================")
 
-        # Download data
-        sp500_ratios = pd.read_excel('data/S&P Ratios.xlsx', index_col=0, sheet_name="Results", usecols='C:CU')
-        download_all_data(sp500_ratios, start_dates[i].strftime("%Y-%m-%d"), progress=False)
-
         # Load params
         params = load_params(start_date=start_dates[i].strftime(date_format))
 
-        # Quick hack
-        for model in ['Linear', 'CNN', 'Linear + CNN']:
-            params[model][args.opt]['data']['returns'] = False
-            params[model][args.opt]['data']['momentum'] = False
-
         # Load data
-        prices_train, prices_test, data_dict = load_data(start_date=start_dates[i].strftime(date_format),
+        prices_train, prices_test, data_train = load_data(start_date=start_dates[i].strftime(date_format),
                                                          valid_date=valid_dates[i].strftime(date_format),
                                                          train_date=train_dates[i].strftime(date_format),
-                                                         end_date=end_dates[i].strftime(date_format),
-                                                         params=params,
-                                                         opt=args.opt)
+                                                         end_date=end_dates[i].strftime(date_format))
 
         # Train autoencoders
-        models = train_autoencoders(data_dict=data_dict, num_epochs=20, params=params, opt=args.opt)
+        models = train_autoencoders(data_train=data_train, num_epochs=20, params=params, opt=args.opt)
 
         # Calculate distance matrices
-        dist_matrices = calculate_dist_matrix(data_dict=data_dict, models=models, params=params, opt=args.opt)
+        dist_matrices = calculate_dist_matrix(data_train=data_train, models=models, params=params, opt=args.opt)
 
         # MVO
         weights = mvo(dist_matrices=dist_matrices, params=params, prices_train=prices_train, opt=args.opt)

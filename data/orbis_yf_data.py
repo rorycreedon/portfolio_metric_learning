@@ -164,10 +164,11 @@ def download_all_data(sp500_ratios, date, progress=True):
     data = merge_reshape_data(orbis_ratios, yf_all_data)
 
     # Save
-    data.to_pickle('data/sp500_data.pkl')
+    data.to_pickle(f'data/sp500_data_{date}.pkl')
 
 
 if __name__ == "__main__":
 
     sp500_ratios = pd.read_excel('data/S&P Ratios.xlsx', index_col=0, sheet_name="Results", usecols='C:CU')
-    download_all_data(sp500_ratios, '2019-12-23', progress=True)
+    for train_date in ['2020-03-01', '2020-09-01', '2021-03-01', '2021-09-01']:
+        download_all_data(sp500_ratios, train_date, progress=True)

@@ -27,14 +27,14 @@ def split_data(start_date, valid_date, train_date, end_date, train_valid_split=2
     :return: data, a list of data_train, data_valid_train and prices, a list of price_train, price_valid_train, price_valid_valid, price_test
     """
     # Clean data
-    data = clean_orbis_data(start_date=start_date, returns=returns, momentum=momentum)
+    data = clean_orbis_data(start_date=start_date, train_date=train_date, returns=returns, momentum=momentum)
 
     # Train number
     train_number = round(train_valid_split * np.unique(data.columns.get_level_values(1)).shape[0])
 
     # Check if all price data needed is included in data
     if data.index[-1] >= datetime.strptime(end_date, "%Y-%m-%d"):
-        price_data = pd.read_pickle('data/sp500_data.pkl')['Price']
+        price_data = pd.read_pickle(f'data/sp500_data_{train_date}.pkl')['Price']
     else:
         # Download price data for test set
         start_price_date = datetime.strptime(start_date, "%Y-%m-%d")
@@ -65,7 +65,7 @@ def split_data(start_date, valid_date, train_date, end_date, train_valid_split=2
     return data, prices
 
 
-def clean_orbis_data(start_date, returns=False, momentum=False):
+def clean_orbis_data(start_date, train_date, returns=False, momentum=False):
     """
     Split Orbis data into train and validation
     :param start_date: start date of the data
@@ -76,7 +76,7 @@ def clean_orbis_data(start_date, returns=False, momentum=False):
     :param momentum: Whether momentum features should be used
     :return: train, valid_train, valid_valid
     """
-    data = pd.read_pickle('data/sp500_data.pkl')
+    data = pd.read_pickle(f'data/sp500_data_{train_date}.pkl')
 
     # 100 indexing price and volume
     data = data[data.index >= start_date]
@@ -114,7 +114,6 @@ def split_prices(data, start_date, valid_date, train_date, end_date, train_valid
     :param train_valid_split: Train/valid split
     :return:train, valid_train, valid_valid and test
     """
-    # data = pd.read_pickle('data/sp500_data.pkl')['Price']
 
     # Train number
     train_number = round(train_valid_split * data.shape[-1])
