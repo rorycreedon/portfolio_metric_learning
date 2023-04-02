@@ -10,7 +10,7 @@ The repository is structured as follows:
   - `F-F_Research_Data_Factors_daily.csv` contains data on the Fama-French factors in the Fama-French three-factor model. This file can also be downloaded from Kenneth French's [website](https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html#Research).
   - `S&P Ratios.xlsx` contains a number of financial ratios downloaded from Orbis for stocks within the S&P 500.
   - `S&P Tickers.csv` contains the tickers in the S&P 500 by day.
-  - `sp500_data.pkl` is created by running `data/orbis_yf_data.py`.
+  - `sp500_data_{train_date}.pkl` files are created by running `data/orbis_yf_data.py`.
 
 - `models/` contains the code for the models used in the project, which are listed as follows:
   - `autoencoders.py` contains classes for each of the autoencoders used in the report.

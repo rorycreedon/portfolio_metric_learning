@@ -206,8 +206,7 @@ if __name__ == '__main__':
         os.mkdir('results')
 
     # Setup dates
-    #start_dates = ['2017-03-01', '2017-09-01', '2018-03-01', '2018-09-01']
-    start_dates = ['2018-09-01']
+    start_dates = ['2017-03-01', '2017-09-01', '2018-03-01', '2018-09-01']
     date_format = "%Y-%m-%d"
     start_dates = [datetime.datetime.strptime(date, date_format) for date in start_dates]
     valid_dates = [date + relativedelta(years=2) for date in start_dates]
