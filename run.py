@@ -170,7 +170,7 @@ def save_results(weights, sharpe_ratios, prices_test, start_date, train_date, en
 
 def make_plots(prices_test, weights, start_date, train_date, end_date, opt):
     # Setup fig, ax
-    fig, ax = plt.subplots(figsize=(6, 4))
+    fig, ax = plt.subplots(figsize=(6, 3))
 
     # Plots
     for model in weights.keys():
@@ -181,12 +181,17 @@ def make_plots(prices_test, weights, start_date, train_date, end_date, opt):
     # Plot all prices in background
     ax.plot(prices_test, alpha=0.05)
 
-    ax.set_ylim([50, 200])
+    ax.margins(x=0)
+    ax.set_ylim([75, 175])
+    ax.set_ylabel("Portfolio value (indexed at 100)", fontsize=9)
     ax.grid()
-    ax.legend(fontsize='x-small')
+    ax.set_title("Max Sharpe Ratio Portfolios over period 2020-09-01 to 2022-03-01", fontsize=10)
+    ax.tick_params(axis='both', which='major', labelsize=9)
+    ax.legend(fontsize='x-small', ncols=2)
     fig.autofmt_xdate()
 
     # Save plot
+    fig.tight_layout()
     fig.savefig(f'plots/sp500_{start_date}_{opt}.png', dpi=300, bbox_inches="tight")
 
 
@@ -198,6 +203,11 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.opt not in ["sharpe", "volatility"]:
         raise ValueError("Volatility must be either 'sharpe' or 'volatility'")
+
+    # Plotting adjustments
+    plt.rcParams["font.family"] = "Times New Roman"
+    plt.rcParams['savefig.dpi'] = 300
+    plt.rcParams.update({'figure.autolayout': True})
 
     # Make folders if necessary
     if not os.path.exists('plots'):
