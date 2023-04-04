@@ -2,6 +2,12 @@
 
 This repository contains the code for my COMP0162 Advanced Machine Learning in Finance report.
 
+## Abstract
+
+Whilst mean-variance optimisation finds the optimal in-sample portfolio, it typically exhibits poor out-of-sample performance. This paper proposes a novel methodology to incorporate multiple factors (such as historical profit ratios) into constructing a covariance matrix for mean-variance optimisation, inspired by Autowarp [[1](https://arxiv.org/pdf/1810.10107.pdf)]. An autoencoder is first trained on features relevant to each asset. Secondly, an automatically selected distance metric is used to measure the distance between the latent representations for each pair of assets. Finally, this distance matrix is standardised and multiplied by the standard deviations of returns to create a covariance matrix. Using a selection of the constituent stocks in the S\&P 500, this method can lead to much improved out-of-sample performance compared to other covariance matrices, such as the sample covariance matrix, covariance shrinkage and the exponentially weighted covariance matrix.
+
+## Project Structure
+
 The repository is structured as follows:
 
 - `data/` contains the data used for the project.
