@@ -1,6 +1,6 @@
 # Learning a Multi-Factor Covariance Matrix for Portfolio Optimisation
 
-This repository contains the code for my COMP0162 Advanced Machine Learning in Finance [report](Learning a Multi-Factor Covariance Matrix for Portfolio Optimisation.pdf).
+This repository contains the code for my COMP0162 Advanced Machine Learning in Finance report.
 
 ## Abstract
 
