@@ -9,11 +9,11 @@ from pypfopt import objective_functions
 
 class MeanVarianceOptimisation:
 
-    def __init__(self, expected_returns, prices, solver="OSQP", weight_bounds=(0, 1)):
+    def __init__(self, expected_returns, prices, solver="ECOS", weight_bounds=(0, 1)):
         """
         Initialise class.
         :param expected_returns: expected returns for each asset (pandas.DataFrame), shape n_assets x 1
-        :param solver: Solver that can be found with `cvxpy.installed_solvers()`, for example: ['ECOS', 'ECOS_BB', 'OSQP', 'SCIPY', 'SCS']
+        :param solver: Solver that can be found with `cvxpy.installed_solvers()`, for example: ['ECOS', 'ECOS_BB', 'SCIPY', 'SCS']
         :param prices: prices for each asset (pandas.DataFrame)
         :param weight_bounds: (min_pct_portfolio, max_pct_portfolio). Usually (0,1), but set min_pct_portfolio<0 to allow short positions
         """

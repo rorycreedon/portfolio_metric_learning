@@ -2,14 +2,12 @@ import torch
 
 # Other files
 import utils
-from data.orbis_yf_data import download_all_data
 from models.mean_variance_optimisation import MeanVarianceOptimisation
 from models.autoencoders import LinearAutoencoder, ConvAutoencoder, ConvLinearAutoEncoder, train_autoencoder
 from models.autowarp import AutoWarp
 
 # General imports
 import numpy as np
-import pandas as pd
 import datetime
 from dateutil.relativedelta import relativedelta
 import warnings

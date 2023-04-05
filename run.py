@@ -6,7 +6,6 @@ from models.autowarp import AutoWarp
 from models.mean_variance_optimisation import MeanVarianceOptimisation
 from models.autoencoders import LinearAutoencoder, ConvAutoencoder, ConvLinearAutoEncoder, train_autoencoder
 from models.fama_french import FamaFrench
-from data.orbis_yf_data import download_all_data
 
 # General imports
 import matplotlib.pyplot as plt
