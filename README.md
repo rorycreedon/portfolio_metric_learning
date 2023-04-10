@@ -2,6 +2,8 @@
 
 This repository contains the code for my COMP0162 Advanced Machine Learning in Finance report.
 
+The link to the paper is [here](Report.pdf).
+
 ## Abstract
 
 Whilst mean-variance optimisation finds the optimal in-sample portfolio, it typically exhibits poor out-of-sample performance. This paper proposes a novel methodology to incorporate multiple factors (such as historical profit ratios) into constructing a covariance matrix for mean-variance optimisation, inspired by Autowarp [[1](https://arxiv.org/pdf/1810.10107.pdf)]. An autoencoder is first trained on features relevant to each asset. Secondly, an automatically selected distance metric is used to measure the distance between the latent representations for each pair of assets. Finally, this distance matrix is standardised and multiplied by the standard deviations of returns to create a covariance matrix. Using a selection of the constituent stocks in the S&P 500, this method can lead to much improved out-of-sample performance compared to other covariance matrices, such as the sample covariance matrix, covariance shrinkage and the exponentially weighted covariance matrix.
@@ -29,7 +31,7 @@ The repository is structured as follows:
 - `demo.ipynb` contains a demo of the model produced and produces some plots for all results
 - `environment.yml` is the YAML file for the Conda environment
 - `hyperparam_optimisation.py` contains code to conduct Bayesian Optimisation for hyperparameter tuning.
-- `Learning a Multi-Factor Covariance Matrix for Portfolio Optimisation.pdf` is the paper
+- `Report.pdf` is the paper.
 - `run.py` contains code to re-produce all the results in the paper
 - `utils.py` contains helper functions used in the repository
 
