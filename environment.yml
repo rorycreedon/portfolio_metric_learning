@@ -190,5 +190,5 @@ dependencies:
       - typing-extensions==4.5.0
       - tzdata==2023.3
       - webencodings==0.5.1
-      - yfinance==0.2.14
+      - yfinance==0.2.17
 prefix: C:\Users\roryc\miniconda3\envs\portfolio_metric_learning
