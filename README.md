@@ -2,7 +2,7 @@
 
 This repository contains the code for my COMP0162 Advanced Machine Learning in Finance report.
 
-The link to the paper is [here](Report.pdf).
+The link to the paper is [here](Report.pdf). I have also written a (potentially easier to read) summary [here](https://rorycreedon.github.io/projects/2023/portolio-autoencoders/)
 
 ## Abstract
 
